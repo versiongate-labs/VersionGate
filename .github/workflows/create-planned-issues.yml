@@ -1,6 +1,11 @@
 name: Create Planned Issues
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/create-planned-issues.yml'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -405,10 +410,24 @@ The current approach requires users to manually copy a secret webhook URL into G
               },
             ];
 
+            // Fetch existing open issues to avoid duplicates
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existingTitles = new Set(existing.map(i => i.title));
+
             for (const [index, issue] of issues.entries()) {
               if (dryRun) {
-                console.log(`[DRY RUN] Would create issue ${index + 1}: ${issue.title}`);
+                const exists = existingTitles.has(issue.title);
+                console.log(`[DRY RUN] Issue ${index + 1}: "${issue.title}" — ${exists ? 'ALREADY EXISTS' : 'would create'}`);
                 console.log(`  Labels: ${issue.labels.join(', ')}`);
+                continue;
+              }
+              if (existingTitles.has(issue.title)) {
+                console.log(`Skipping (already exists): ${issue.title}`);
                 continue;
               }
               try {

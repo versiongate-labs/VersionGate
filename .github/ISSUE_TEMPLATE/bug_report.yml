@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug or unexpected behaviour
+description: Report a bug or unexpected behavior
 title: "bug: "
 labels: ["bug"]
 body:
@@ -19,7 +19,7 @@ body:
     id: steps
     attributes:
       label: Steps to Reproduce
-      description: Steps to reproduce the behaviour.
+      description: Steps to reproduce the behavior.
       placeholder: |
         1. Go to '...'
         2. Click on '...'
