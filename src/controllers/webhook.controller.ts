@@ -1,10 +1,9 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ProjectRepository } from "../repositories/project.repository";
-import { DeploymentService } from "../services/deployment.service";
+import { enqueueJob } from "../services/job-queue";
 import { logger } from "../utils/logger";
 
 const projectRepo = new ProjectRepository();
-const deploymentService = new DeploymentService();
 
 interface WebhookParams {
   secret: string;
@@ -44,9 +43,8 @@ export async function githubWebhookHandler(
 
   logger.info({ projectId: project.id, projectName: project.name, ref }, "Webhook: triggering auto-deploy");
 
-  // Fire deploy asynchronously — don't block the webhook response
-  deploymentService.deploy({ projectId: project.id }).catch((err) => {
-    logger.error({ projectId: project.id, err }, "Webhook: auto-deploy failed");
+  enqueueJob("DEPLOY", project.id, {}).catch((err) => {
+    logger.error({ projectId: project.id, err }, "Webhook: failed to enqueue deploy job");
   });
 
   return reply.code(200).send({ triggered: true, project: project.name });

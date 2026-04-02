@@ -39,8 +39,8 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
         202: {
           type: "object",
           properties: {
-            deployment: deploymentSchema,
-            message: { type: "string" },
+            jobId: { type: "string" },
+            status: { type: "string" },
           },
         },
       },
@@ -49,6 +49,20 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/deployments", {
+    schema: {
+      response: {
+        200: {
+          type: "object",
+          properties: {
+            deployments: { type: "array", items: deploymentSchema },
+          },
+        },
+      },
+    },
+    handler: listDeploymentsHandler,
+  });
+
+  app.get("/projects/:id/deployments", {
     schema: {
       response: {
         200: {

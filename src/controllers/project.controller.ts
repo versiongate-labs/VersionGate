@@ -2,13 +2,12 @@ import { FastifyRequest, FastifyReply } from "fastify";
 import path from "path";
 import { randomBytes } from "crypto";
 import { ProjectRepository } from "../repositories/project.repository";
-import { RollbackService } from "../services/rollback.service";
+import { enqueueJob } from "../services/job-queue";
 import { config } from "../config/env";
 import { logger } from "../utils/logger";
 import { validateEnvObject } from "../utils/env";
 
 const projectRepo = new ProjectRepository();
-const rollbackService = new RollbackService();
 
 interface CreateProjectBody {
   name: string;
@@ -107,8 +106,8 @@ export async function rollbackProjectHandler(
   req: FastifyRequest<{ Params: ProjectParams }>,
   reply: FastifyReply
 ): Promise<void> {
-  const result = await rollbackService.rollback(req.params.id);
-  reply.code(200).send(result);
+  const jobId = await enqueueJob("ROLLBACK", req.params.id, {});
+  reply.code(202).send({ jobId, status: "PENDING" });
 }
 
 export async function updateProjectHandler(

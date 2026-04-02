@@ -59,22 +59,6 @@ const updateEnvBodySchema = {
   additionalProperties: false,
 };
 
-const rollbackDeploymentSchema = {
-  type: "object",
-  properties: {
-    id: { type: "string" },
-    version: { type: "number" },
-    imageTag: { type: "string" },
-    containerName: { type: "string" },
-    port: { type: "number" },
-    color: { type: "string" },
-    status: { type: "string" },
-    projectId: { type: "string" },
-    createdAt: { type: "string" },
-    updatedAt: { type: "string" },
-  },
-};
-
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.post("/projects", {
     schema: {
@@ -170,12 +154,11 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.post("/projects/:id/rollback", {
     schema: {
       response: {
-        200: {
+        202: {
           type: "object",
           properties: {
-            rolledBackFrom: rollbackDeploymentSchema,
-            restoredTo: rollbackDeploymentSchema,
-            message: { type: "string" },
+            jobId: { type: "string" },
+            status: { type: "string" },
           },
         },
       },

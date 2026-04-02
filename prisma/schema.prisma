@@ -36,8 +36,30 @@ model Project {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   deployments Deployment[]
+  jobs        Job[]
 
   @@index([name])
+}
+
+// Run after schema changes: bunx prisma migrate dev --name add_job_queue
+model Job {
+  id           String    @id @default(uuid())
+  type         String // DEPLOY, ROLLBACK, HEALTH_CHECK
+  status       String    @default("PENDING") // PENDING, RUNNING, COMPLETE, FAILED, CANCELLED
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deploymentId String?
+  payload      Json
+  result       Json?
+  logs         Json      @default("[]")
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([projectId])
+  @@index([status])
 }
 
 model Deployment {

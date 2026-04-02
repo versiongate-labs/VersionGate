@@ -11,6 +11,8 @@ import { systemRoutes } from "./routes/system.routes";
 import { metricsRoutes } from "./routes/metrics.routes";
 import { webhookRoutes } from "./routes/webhook.routes";
 import { setupRoutes } from "./routes/setup.routes";
+import { logsRoutes } from "./routes/logs.route";
+import { jobRoutes } from "./routes/job.routes";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -73,6 +75,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(webhookRoutes, { prefix: "/api/v1" });
   await app.register(setupRoutes, { prefix: "/api/v1" });
 
+  await app.register(import("@fastify/websocket"));
+  await app.register(logsRoutes, { prefix: "/api/v1" });
+  await app.register(jobRoutes, { prefix: "/api/v1" });
+
   // ── Dashboard static serving ────────────────────────────────────────────────
   if (existsSync(dashboardOutDir)) {
     const fastifyStatic = (await import("@fastify/static")).default;
@@ -86,34 +92,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     logger.warn("Dashboard not built — run: cd dashboard && bun install && bun run build");
   }
 
-  // ── SPA fallback ────────────────────────────────────────────────────────────
-  // Next.js App Router static export pre-renders only __placeholder__ for the
-  // dynamic /projects/[id] route.  When the client navigates to a real project
-  // ID, Next fetches its RSC payload (index.txt) and the HTML shell.  We
-  // intercept those requests and serve the __placeholder__ versions so the
-  // client-side router can hydrate with the real ID from useParams().
+  // ── SPA fallback (Vite + React Router) ─────────────────────────────────────
   app.setNotFoundHandler(async (req, reply) => {
     if (req.method !== "GET" || req.url.startsWith("/api/")) {
       return reply.code(404).send({ error: "Not Found", message: `${req.method} ${req.url} not found` });
     }
 
-    // RSC payload requests: /projects/:id/index.txt?_rsc=...
-    if (/^\/projects\/[^/]+\/index\.txt/.test(req.url)) {
-      const txt = join(dashboardOutDir, "projects", "__placeholder__", "index.txt");
-      if (existsSync(txt)) {
-        return reply.type("text/x-component").sendFile("projects/__placeholder__/index.txt");
-      }
-    }
-
-    // Project detail HTML: /projects/:id or /projects/:id/
-    if (/^\/projects\/[^/]+(\/)?(\?.*)?$/.test(req.url)) {
-      const html = join(dashboardOutDir, "projects", "__placeholder__", "index.html");
-      if (existsSync(html)) {
-        return reply.type("text/html").sendFile("projects/__placeholder__/index.html");
-      }
-    }
-
-    // Default: serve root index.html as SPA shell
     const indexPath = join(dashboardOutDir, "index.html");
     if (existsSync(indexPath)) {
       return reply.type("text/html").sendFile("index.html");

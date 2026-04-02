@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { DeploymentService } from "../services/deployment.service";
+import { enqueueJob } from "../services/job-queue";
 
 const deploymentService = new DeploymentService();
 
@@ -12,15 +13,16 @@ export async function deployHandler(
   reply: FastifyReply
 ): Promise<void> {
   const { projectId } = req.body;
-  const result = await deploymentService.deploy({ projectId });
-  reply.code(202).send(result);
+  const jobId = await enqueueJob("DEPLOY", projectId, {});
+  reply.code(202).send({ jobId, status: "PENDING" });
 }
 
 export async function listDeploymentsHandler(
-  _req: FastifyRequest,
+  req: FastifyRequest<{ Params: { id?: string } }>,
   reply: FastifyReply
 ): Promise<void> {
-  const deployments = await deploymentService.getAllDeployments();
+  const projectId = req.params?.id;
+  const deployments = await deploymentService.getAllDeployments(projectId);
   reply.code(200).send({ deployments });
 }
 
