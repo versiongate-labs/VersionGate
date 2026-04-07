@@ -40,17 +40,27 @@ export class ValidationService {
 
       const start = Date.now();
       try {
-        const response = await axios.get(healthUrl, { timeout: healthTimeoutMs });
+        const response = await axios.get(healthUrl, {
+          timeout: healthTimeoutMs,
+          validateStatus: () => true,
+        });
         const latency = Date.now() - start;
 
         if (response.status >= 200 && response.status < 300) {
           if (latency > maxLatencyMs) {
-            logger.warn({ healthUrl, attempt, latency }, `Latency ${latency}ms exceeded threshold`);
+            logger.warn({ healthUrl, attempt, latency }, `Latency ${latency}ms exceeded threshold (still passing)`);
           } else {
             logger.info({ healthUrl, attempt, latency }, "Validation passed");
-            return { success: true, latency };
           }
+          return { success: true, latency };
         }
+
+        logger.warn(
+          { healthUrl, attempt, status: response.status },
+          response.status === 404
+            ? "Health URL returned 404 — add this route in your app or change the project's health path (e.g. / for Next.js)"
+            : "Health URL returned non-2xx status"
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.warn({ healthUrl, attempt, err: message }, "Validation attempt failed");
