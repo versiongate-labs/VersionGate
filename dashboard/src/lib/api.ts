@@ -95,6 +95,8 @@ export interface JobRecord {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Present on `GET /jobs` list */
+  project?: { id: string; name: string };
 }
 
 export interface ServerStats {
@@ -190,6 +192,20 @@ export function listProjectJobs(
   if (opts?.offset != null) q.set("offset", String(opts.offset));
   const qs = q.toString();
   return request("GET", `/projects/${projectId}/jobs${qs ? `?${qs}` : ""}`);
+}
+
+/** All deploy/rollback jobs across projects (newest first). */
+export function listAllJobs(opts?: { limit?: number; offset?: number }): Promise<{
+  jobs: JobRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}> {
+  const q = new URLSearchParams();
+  if (opts?.limit != null) q.set("limit", String(opts.limit));
+  if (opts?.offset != null) q.set("offset", String(opts.offset));
+  const qs = q.toString();
+  return request("GET", `/jobs${qs ? `?${qs}` : ""}`);
 }
 
 export function createWebSocket(jobId: string): WebSocket {

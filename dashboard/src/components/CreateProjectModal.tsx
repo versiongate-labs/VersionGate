@@ -15,6 +15,13 @@ import { toast } from "sonner";
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
+const ROOT_PRESETS = [
+  { label: "Repository root", value: "." },
+  { label: "apps/web", value: "apps/web" },
+  { label: "frontend", value: "frontend" },
+  { label: "packages/app", value: "packages/app" },
+] as const;
+
 export function CreateProjectModal({
   open,
   onOpenChange,
@@ -82,14 +89,15 @@ export function CreateProjectModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New project</DialogTitle>
           <DialogDescription>
-            Connect a Git repository. Base ports for blue/green deploys are assigned automatically.
+            Point at your Git repo, then choose the directory that contains your app (like Vercel &quot;Root
+            Directory&quot;). Blue/green host ports are assigned automatically.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={(e) => void onSubmit(e)} className="grid gap-3">
+        <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4">
           <div className="grid gap-1.5">
             <label htmlFor="cp-name" className="text-sm font-medium">
               Project name
@@ -98,15 +106,15 @@ export function CreateProjectModal({
               id="cp-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="my-service"
+              placeholder="my-app"
               autoComplete="off"
               required
             />
-            <p className="text-xs text-muted-foreground">Lowercase, numbers, hyphens only.</p>
+            <p className="text-xs text-muted-foreground">Lowercase letters, numbers, hyphens only.</p>
           </div>
           <div className="grid gap-1.5">
             <label htmlFor="cp-repo" className="text-sm font-medium">
-              Repository URL
+              Git repository URL
             </label>
             <Input
               id="cp-repo"
@@ -117,24 +125,47 @@ export function CreateProjectModal({
               required
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <label htmlFor="cp-branch" className="text-sm font-medium">
-                Branch
-              </label>
-              <Input id="cp-branch" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
-            </div>
-            <div className="grid gap-1.5">
-              <label htmlFor="cp-ctx" className="text-sm font-medium">
-                Build context
-              </label>
-              <Input id="cp-ctx" value={buildContext} onChange={(e) => setBuildContext(e.target.value)} placeholder="." />
-            </div>
+          <div className="grid gap-1.5">
+            <label htmlFor="cp-branch" className="text-sm font-medium">
+              Production branch
+            </label>
+            <Input id="cp-branch" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
           </div>
+
+          <div className="grid gap-2">
+            <label htmlFor="cp-ctx" className="text-sm font-medium">
+              Root directory
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Path from repo root to the folder Docker should build (where your Dockerfile or app lives).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {ROOT_PRESETS.map((p) => (
+                <Button
+                  key={p.value}
+                  type="button"
+                  size="sm"
+                  variant={buildContext === p.value ? "default" : "outline"}
+                  className="h-8 text-xs"
+                  onClick={() => setBuildContext(p.value)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            <Input
+              id="cp-ctx"
+              value={buildContext}
+              onChange={(e) => setBuildContext(e.target.value)}
+              placeholder="."
+              className="font-mono text-sm"
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <label htmlFor="cp-port" className="text-sm font-medium">
-                App port
+                Container app port
               </label>
               <Input
                 id="cp-port"
@@ -143,10 +174,11 @@ export function CreateProjectModal({
                 onChange={(e) => setAppPort(e.target.value)}
                 placeholder="3000"
               />
+              <p className="text-xs text-muted-foreground">EXPOSE / listen port inside the image.</p>
             </div>
             <div className="grid gap-1.5">
               <label htmlFor="cp-health" className="text-sm font-medium">
-                Health path
+                Health check path
               </label>
               <Input id="cp-health" value={healthPath} onChange={(e) => setHealthPath(e.target.value)} placeholder="/health" />
             </div>

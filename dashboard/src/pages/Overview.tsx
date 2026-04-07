@@ -124,12 +124,19 @@ export function Overview() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-8">
+    <div className="w-full space-y-8">
       <PageHeader
         title="Deployments"
         description="Blue/green slots, published host ports, and container app ports. Open a project for full history and job logs."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link
+              to="/activity"
+              className={buttonVariants({ variant: "outline", size: "sm", className: "gap-1.5" })}
+            >
+              <ScrollText className="size-3.5" />
+              Activity
+            </Link>
             <Link
               to="/server"
               className={buttonVariants({ variant: "outline", size: "sm", className: "gap-1.5" })}

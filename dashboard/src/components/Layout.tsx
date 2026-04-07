@@ -16,7 +16,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { LayoutDashboard, Plus, Server, Settings } from "lucide-react";
+import { LayoutDashboard, Plus, ScrollText, Server, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getServerStats, getSetupStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ import { CreateProjectLaunchContext } from "@/create-project-launch";
 
 const nav = [
   { to: "/", label: "Deployments", icon: LayoutDashboard, end: true },
+  { to: "/activity", label: "Activity", icon: ScrollText, end: false },
   { to: "/server", label: "Host metrics", icon: Server, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
@@ -144,7 +145,7 @@ export function Layout() {
                 <span className="hidden sm:inline">Add project</span>
               </button>
             </header>
-            <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
+            <div className="flex w-full min-w-0 flex-1 flex-col gap-4 px-4 py-4 md:px-6 md:py-6 lg:px-8">
               {setupGate === "loading" ? (
                 <div className="flex flex-1 items-center justify-center text-muted-foreground">
                   Loading…

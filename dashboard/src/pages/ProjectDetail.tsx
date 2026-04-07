@@ -86,7 +86,7 @@ export function ProjectDetail() {
 
   if (loading || !project) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="w-full space-y-6">
         <Skeleton className="h-24 rounded-xl" />
         <Skeleton className="h-48 rounded-xl" />
         <Skeleton className="h-72 rounded-xl" />
@@ -111,7 +111,7 @@ export function ProjectDetail() {
   const greenUrl = publicServiceUrl(project.basePort + 1);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
+    <div className="w-full space-y-8">
       <PageHeader
         title={project.name}
         description={project.repoUrl}

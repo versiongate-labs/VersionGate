@@ -13,6 +13,28 @@ export async function getJobHandler(
   reply.code(200).send({ job });
 }
 
+export async function listAllJobsHandler(
+  req: FastifyRequest<{ Querystring: { limit?: string; offset?: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const limit = Math.min(Math.max(parseInt(req.query.limit ?? "50", 10) || 50, 1), 200);
+  const offset = Math.max(parseInt(req.query.offset ?? "0", 10) || 0, 0);
+
+  const [jobs, total] = await prisma.$transaction([
+    prisma.job.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: offset,
+      include: {
+        project: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.job.count(),
+  ]);
+
+  reply.code(200).send({ jobs, total, limit, offset });
+}
+
 export async function listProjectJobsHandler(
   req: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>,
   reply: FastifyReply

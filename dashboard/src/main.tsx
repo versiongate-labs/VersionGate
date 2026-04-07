@@ -9,6 +9,7 @@ import { DeployLog } from "@/pages/DeployLog";
 import { Server } from "@/pages/Server";
 import { Settings } from "@/pages/Settings";
 import { Setup } from "@/pages/Setup";
+import { Activity } from "@/pages/Activity";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -17,6 +18,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/setup" element={<Setup />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Overview />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/projects/:id/deploy/:jobId" element={<DeployLog />} />
           <Route path="/server" element={<Server />} />

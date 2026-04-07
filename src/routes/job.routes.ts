@@ -1,5 +1,10 @@
 import { FastifyInstance } from "fastify";
-import { cancelJobHandler, getJobHandler, listProjectJobsHandler } from "../controllers/job.controller";
+import {
+  cancelJobHandler,
+  getJobHandler,
+  listAllJobsHandler,
+  listProjectJobsHandler,
+} from "../controllers/job.controller";
 
 const jobSchema = {
   type: "object",
@@ -21,6 +26,10 @@ const jobSchema = {
 };
 
 export async function jobRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/jobs", {
+    handler: listAllJobsHandler,
+  });
+
   app.get("/jobs/:id", {
     schema: {
       response: { 200: { type: "object", properties: { job: jobSchema } } },

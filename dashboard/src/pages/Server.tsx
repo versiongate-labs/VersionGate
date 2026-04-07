@@ -30,7 +30,7 @@ export function Server() {
 
   if (!stats) {
     return (
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="w-full space-y-6">
         <Skeleton className="h-10 w-56" />
         <div className="grid gap-4 md:grid-cols-2">
           <Skeleton className="h-44 rounded-xl" />
@@ -48,7 +48,7 @@ export function Server() {
   const loadAvg = stats.load_avg?.map((x) => x.toFixed(2)).join(" / ") ?? "—";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
+    <div className="w-full space-y-8">
       <PageHeader
         title="Host metrics"
         description="CPU, memory, and disk for the machine running VersionGate. Refreshes every 5 seconds."
