@@ -139,7 +139,7 @@ function buildNpmDockerfile(appPort: number, hasBuild: boolean): string {
     "WORKDIR /app",
     "",
     "COPY package*.json ./",
-    "RUN npm install",
+    "RUN npm install --legacy-peer-deps",
     "",
     "COPY . .",
     "",

@@ -16,15 +16,24 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { LayoutDashboard, Plus, ScrollText, Server, Settings } from "lucide-react";
+import {
+  Box,
+  ChevronRight,
+  Globe,
+  LayoutDashboard,
+  Plus,
+  ScrollText,
+  Server,
+  Settings,
+} from "lucide-react";
 import { useEffect, useState } from "react";
-import { getServerStats, getSetupStatus } from "@/lib/api";
+import { getProjects, getServerStats, getSetupStatus, type Project } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { CreateProjectLaunchContext } from "@/create-project-launch";
 
 const nav = [
-  { to: "/", label: "Deployments", icon: LayoutDashboard, end: true },
+  { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/activity", label: "Activity", icon: ScrollText, end: false },
   { to: "/server", label: "Host metrics", icon: Server, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
@@ -38,6 +47,8 @@ export function Layout() {
   const [serverOk, setServerOk] = useState(true);
   const [setupGate, setSetupGate] = useState<"loading" | "ready">("loading");
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+
   useEffect(() => {
     let cancelled = false;
     void getSetupStatus()
@@ -75,6 +86,24 @@ export function Layout() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadProjects = async () => {
+      try {
+        const r = await getProjects();
+        if (!cancelled) setProjects(r.projects);
+      } catch {
+        /* sidebar project list is non-critical */
+      }
+    };
+    void loadProjects();
+    const id = window.setInterval(() => void loadProjects(), 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
   return (
     <TooltipProvider>
       <CreateProjectLaunchContext.Provider value={() => setCreateProjectOpen(true)}>
@@ -83,9 +112,14 @@ export function Layout() {
             <SidebarHeader className="border-b border-sidebar-border">
               <div className="flex items-center gap-2 px-2 py-1">
                 <SidebarTrigger className="-ml-1" />
-                <span className="bg-linear-to-br from-primary to-primary/70 bg-clip-text font-semibold tracking-tight text-transparent group-data-[collapsible=icon]:hidden">
-                  VersionGate
-                </span>
+                <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
+                  <div className="flex size-7 items-center justify-center rounded-lg bg-primary/10">
+                    <Globe className="size-4 text-primary" />
+                  </div>
+                  <span className="font-semibold tracking-tight text-foreground">
+                    VersionGate
+                  </span>
+                </div>
               </div>
             </SidebarHeader>
             <SidebarContent>
@@ -120,29 +154,62 @@ export function Layout() {
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
+
+              {/* Project quick-nav */}
+              {projects.length > 0 && (
+                <SidebarGroup>
+                  <SidebarGroupLabel>Projects</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {projects.map((p) => (
+                        <SidebarMenuItem key={p.id}>
+                          <NavLink
+                            to={`/projects/${p.id}`}
+                            className={({ isActive }) =>
+                              cn(
+                                navBtn,
+                                isActive &&
+                                  "bg-sidebar-accent font-medium text-sidebar-primary"
+                              )
+                            }
+                          >
+                            <Box className="size-4 shrink-0" />
+                            <span className="truncate">{p.name}</span>
+                            <ChevronRight className="ml-auto size-3 opacity-40" />
+                          </NavLink>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              )}
             </SidebarContent>
             <SidebarRail />
           </Sidebar>
           <SidebarInset className="bg-background min-h-svh">
-            <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-card/30 px-4 backdrop-blur-sm">
+            <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl">
               <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Control</span>
-                <Separator orientation="vertical" className="h-6" />
+                <SidebarTrigger className="lg:hidden" />
+                <span className="text-sm font-medium tracking-wide text-muted-foreground">Control plane</span>
+                <Separator orientation="vertical" className="h-5" />
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span
-                    className={`inline-block size-2.5 rounded-full shadow-[0_0_8px_currentColor] ${serverOk ? "bg-emerald-400 text-emerald-400" : "bg-red-400 text-red-400"}`}
+                    className={cn(
+                      "inline-block size-2 rounded-full shadow-[0_0_6px_currentColor]",
+                      serverOk ? "bg-emerald-400 text-emerald-400" : "bg-red-400 text-red-400"
+                    )}
                     title={serverOk ? "API reachable" : "API issue"}
                   />
-                  <span className="hidden sm:inline">API</span>
+                  <span className="hidden text-xs sm:inline">{serverOk ? "Connected" : "Disconnected"}</span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setCreateProjectOpen(true)}
-                className="inline-flex h-9 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+                className="inline-flex h-8 items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
               >
-                <Plus className="size-4" />
-                <span className="hidden sm:inline">Add project</span>
+                <Plus className="size-3.5" />
+                <span className="hidden sm:inline">New project</span>
               </button>
             </header>
             <div className="flex w-full min-w-0 flex-1 flex-col gap-4 px-4 py-4 md:px-6 md:py-6 lg:px-8">

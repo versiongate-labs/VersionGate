@@ -16,14 +16,15 @@ export function StatCard({
   iconClassName?: string;
 }) {
   return (
-    <Card className="relative overflow-hidden border-border/50 bg-card/80 shadow-none ring-1 ring-border/40 transition-colors hover:ring-primary/20">
-      <div className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-primary/5" />
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <span className="text-sm font-medium text-muted-foreground">{label}</span>
-        <Icon className={cn("size-4 text-muted-foreground", iconClassName)} />
+    <Card className="relative overflow-hidden border-border/50 bg-card/70 shadow-none ring-1 ring-border/30 transition-all hover:ring-primary/20 hover:shadow-md hover:shadow-primary/5">
+      <div className="pointer-events-none absolute -right-6 -top-6 size-24 rounded-full bg-primary/[0.03]" />
+      <div className="pointer-events-none absolute -right-2 -top-2 size-12 rounded-full bg-primary/[0.04]" />
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/80">{label}</span>
+        <Icon className={cn("size-4 text-muted-foreground/60", iconClassName)} />
       </CardHeader>
       <CardContent>
-        <div className={cn("text-3xl font-semibold tabular-nums tracking-tight", valueClassName)}>{value}</div>
+        <div className={cn("text-3xl font-bold tabular-nums tracking-tight", valueClassName)}>{value}</div>
       </CardContent>
     </Card>
   );

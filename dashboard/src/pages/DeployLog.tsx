@@ -4,14 +4,25 @@ import { createWebSocket, getJobStatus } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
-import { AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  ClipboardCopy,
+  Download,
+  ListOrdered,
+  ScrollText,
+} from "lucide-react";
+import { toast } from "sonner";
 
-type LineKind = "info" | "success" | "error";
+type LineKind = "info" | "success" | "error" | "step";
 
 function classifyLine(line: string): LineKind {
   const lower = line.toLowerCase();
+  if (/^step \d+/i.test(line.trim()) || /^\[.*\]/.test(line.trim())) return "step";
   if (lower.includes("failed") || lower.includes("error") || lower.includes("fatal")) return "error";
   if (lower.includes("successful") || lower.includes("complete") || lower.includes("✓")) return "success";
   return "info";
@@ -27,6 +38,8 @@ export function DeployLog() {
   const [jobError, setJobError] = useState<string | null>(null);
   const [pendingSince, setPendingSince] = useState<number | null>(null);
   const [clock, setClock] = useState(() => Date.now());
+  const [showLineNumbers, setShowLineNumbers] = useState(false);
+  const [copied, setCopied] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -124,65 +137,138 @@ export function DeployLog() {
         ? "destructive"
         : "secondary";
 
+  const statusColor =
+    jobStatus === "COMPLETE"
+      ? "text-emerald-400"
+      : jobStatus === "FAILED" || jobStatus === "CANCELLED"
+        ? "text-red-400"
+        : jobStatus === "RUNNING"
+          ? "text-cyan-400"
+          : "text-amber-400";
+
+  const copyLogs = () => {
+    const text = lines.join("\n");
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        toast.success("Logs copied to clipboard");
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => toast.error("Failed to copy logs")
+    );
+  };
+
+  const downloadLogs = () => {
+    const text = lines.join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `deploy-${jobId?.slice(0, 8) ?? "log"}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Log file downloaded");
+  };
+
+  const isTerminal = jobStatus === "COMPLETE" || jobStatus === "FAILED" || jobStatus === "CANCELLED";
+
   return (
     <div className="w-full space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <PageHeader
-          title="Deploy log"
-          description="Streaming output from the worker. If this stays empty, confirm versiongate-worker is running (pm2) and check API logs."
-        />
+        <div className="flex items-center gap-3">
+          {projectId && (
+            <Link
+              to={`/projects/${projectId}`}
+              className="inline-flex size-9 items-center justify-center rounded-lg border border-border/50 bg-card/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+          )}
+          <PageHeader
+            title="Deploy log"
+            description={`Streaming build output ${jobId ? `· ${jobId.slice(0, 8)}…` : ""}`}
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={badgeVariant} className="shrink-0 font-mono text-xs">
+          {!isTerminal && (
+            <span className="relative mr-1 flex size-2.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-cyan-500" />
+            </span>
+          )}
+          <Badge variant={badgeVariant} className={cn("shrink-0 font-mono text-xs", statusColor)}>
             {jobStatus}
           </Badge>
-          {jobId ? (
-            <span className="font-mono text-xs text-muted-foreground">
-              job {jobId.slice(0, 8)}…
-            </span>
-          ) : null}
         </div>
       </div>
 
-      {showWorkerHint ? (
+      {showWorkerHint && (
         <Alert className="border-amber-500/40 bg-amber-500/10">
           <AlertTriangle className="size-4 text-amber-400" />
           <AlertTitle>Job still queued</AlertTitle>
           <AlertDescription>
             Nothing has started yet. On the server run{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-xs">pm2 list</code> and ensure{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">versiongate-worker</code> is online. Restart with{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">pm2 restart versiongate-worker</code>.
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">versiongate-worker</code> is online.
           </AlertDescription>
         </Alert>
-      ) : null}
+      )}
 
-      {jobError ? (
+      {jobError && (
         <Alert variant="destructive">
           <AlertTitle>Job error</AlertTitle>
           <AlertDescription className="font-mono text-xs whitespace-pre-wrap">{jobError}</AlertDescription>
         </Alert>
-      ) : null}
-
-      {projectId && (
-        <div className="flex flex-wrap gap-3 text-sm">
-          <Link to={`/projects/${projectId}`} className="text-muted-foreground hover:text-primary">
-            ← Project
-          </Link>
-          <Link to="/activity" className="text-muted-foreground hover:text-primary">
-            All activity →
-          </Link>
-        </div>
       )}
 
       <Card className="overflow-hidden border-border/50 bg-card/40 ring-1 ring-border/30">
-        <CardHeader className="border-b border-border/40 py-3">
-          <CardTitle className="font-mono text-xs font-normal uppercase tracking-wider text-muted-foreground">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-border/40 py-3">
+          <CardTitle className="flex items-center gap-2 font-mono text-xs font-normal uppercase tracking-wider text-muted-foreground">
+            <ScrollText className="size-3.5" />
             Output
+            {lines.length > 0 && (
+              <span className="text-[10px] tabular-nums text-muted-foreground/60">
+                {lines.length} lines
+              </span>
+            )}
           </CardTitle>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setShowLineNumbers(!showLineNumbers)}
+              title="Toggle line numbers"
+            >
+              <ListOrdered className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={copyLogs}
+              disabled={lines.length === 0}
+              title="Copy logs"
+            >
+              {copied ? <Check className="size-3.5 text-emerald-400" /> : <ClipboardCopy className="size-3.5" />}
+              <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={downloadLogs}
+              disabled={lines.length === 0}
+              title="Download logs"
+            >
+              <Download className="size-3.5" />
+              <span className="hidden sm:inline">Download</span>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <pre
-            className="min-h-[50vh] max-h-[min(75vh,720px)] w-full overflow-auto bg-black/60 p-4 font-mono text-xs leading-relaxed md:p-6 md:text-sm"
+            className="min-h-[50vh] max-h-[min(75vh,720px)] w-full overflow-auto bg-[#0a0a0f] p-4 font-mono text-xs leading-relaxed md:p-6 md:text-sm"
             style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
           >
             {lines.length === 0 ? (
@@ -200,12 +286,19 @@ export function DeployLog() {
                 <div
                   key={`${i}-${line.slice(0, 24)}`}
                   className={cn(
+                    "group/line flex hover:bg-white/[0.02]",
                     kind === "success" && "text-emerald-400",
                     kind === "error" && "text-red-400",
+                    kind === "step" && "text-cyan-300 font-medium mt-1",
                     kind === "info" && "text-zinc-300"
                   )}
                 >
-                  {line}
+                  {showLineNumbers && (
+                    <span className="mr-4 inline-block w-8 select-none text-right tabular-nums text-zinc-600">
+                      {i + 1}
+                    </span>
+                  )}
+                  <span className="flex-1">{line}</span>
                 </div>
               );
             })}
@@ -213,6 +306,17 @@ export function DeployLog() {
           </pre>
         </CardContent>
       </Card>
+
+      {projectId && (
+        <div className="flex flex-wrap gap-3 text-sm">
+          <Link to={`/projects/${projectId}`} className="text-muted-foreground hover:text-primary transition-colors">
+            ← Project
+          </Link>
+          <Link to="/activity" className="text-muted-foreground hover:text-primary transition-colors">
+            All activity →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Copy, ExternalLink, ScrollText } from "lucide-react";
+import {
+  ArrowLeft,
+  Clock,
+  Copy,
+  ExternalLink,
+  GitBranch,
+  Globe,
+  Layers,
+  Rocket,
+  RotateCcw,
+  ScrollText,
+  Server,
+  Settings2,
+} from "lucide-react";
 import {
   getDeployments,
   getProject,
@@ -20,7 +33,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
-import { PageHeader } from "@/components/PageHeader";
 import { hostPortForSlot, publicServiceUrl } from "@/lib/deployment-display";
 
 function copyText(text: string, label: string) {
@@ -28,6 +40,17 @@ function copyText(text: string, label: string) {
     () => toast.success(`${label} copied`),
     () => toast.error("Copy failed")
   );
+}
+
+function timeAgo(date: string): string {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export function ProjectDetail() {
@@ -95,7 +118,8 @@ export function ProjectDetail() {
   }
 
   const active = deployments.find((d) => d.status === "ACTIVE");
-  const displayStatus = deployments.some((d) => d.status === "DEPLOYING")
+  const deploying = deployments.find((d) => d.status === "DEPLOYING");
+  const displayStatus = deploying
     ? "DEPLOYING"
     : active
       ? "ACTIVE"
@@ -109,133 +133,231 @@ export function ProjectDetail() {
   const liveUrl = liveHostPort != null ? publicServiceUrl(liveHostPort) : null;
   const blueUrl = publicServiceUrl(project.basePort);
   const greenUrl = publicServiceUrl(project.basePort + 1);
+  const totalDeploys = deployments.length;
+  const lastDeploy = deployments[0];
 
   return (
-    <div className="w-full space-y-8">
-      <PageHeader
-        title={project.name}
-        description={project.repoUrl}
-        actions={
-          <>
-            <a
-              href={project.repoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={buttonVariants({ variant: "outline", size: "sm", className: "gap-1.5" })}
-            >
-              <ExternalLink className="size-3.5" />
-              Repo
-            </a>
-            <Button onClick={() => void onDeploy()}>Deploy</Button>
-            <Button variant="secondary" onClick={() => void onRollback()}>
-              Rollback
-            </Button>
-          </>
-        }
-      />
-
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <code className="rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 font-mono text-xs">{project.branch}</code>
-        <span className="text-muted-foreground">·</span>
-        <span className="text-muted-foreground">Container listens on</span>
-        <code className="rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 font-mono text-xs">{project.appPort}</code>
-        <span className="text-muted-foreground">·</span>
-        <StatusBadge status={displayStatus} />
+    <div className="w-full space-y-6">
+      {/* Back + header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Link
+            to="/"
+            className="mt-1 inline-flex size-9 items-center justify-center rounded-lg border border-border/50 bg-card/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
+              <StatusBadge status={displayStatus} />
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <a
+                href={project.repoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 font-mono text-xs hover:text-primary transition-colors"
+              >
+                <GitBranch className="size-3" />
+                {project.repoUrl.replace(/^https?:\/\/(www\.)?/, "")}
+                <ExternalLink className="size-3 opacity-50" />
+              </a>
+              <span className="text-border">·</span>
+              <span className="flex items-center gap-1 font-mono text-xs">
+                <code className="rounded bg-muted/50 px-1.5 py-0.5">{project.branch}</code>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void onDeploy()} className="gap-2 shadow-lg shadow-primary/10">
+            <Rocket className="size-4" />
+            Deploy
+          </Button>
+          <Button variant="secondary" onClick={() => void onRollback()} className="gap-2">
+            <RotateCcw className="size-4" />
+            Rollback
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-border/50 bg-card/60 ring-1 ring-border/25 lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Blue / green traffic</CardTitle>
-            <CardDescription>
-              Published ports on this host: blue <span className="font-mono">{project.basePort}</span>, green{" "}
-              <span className="font-mono">{project.basePort + 1}</span>. Traffic follows the{" "}
-              <span className="font-medium text-foreground">ACTIVE</span> deployment&apos;s slot.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-4">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <SlotBadge color="BLUE" />
-                {active?.color === "BLUE" && (
-                  <Badge className="bg-emerald-600/90 text-white hover:bg-emerald-600">LIVE</Badge>
-                )}
-              </div>
-              <p className="font-mono text-sm text-foreground">{blueUrl?.replace(/^https?:\/\//, "")}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => blueUrl && copyText(blueUrl, "URL")}
-                >
-                  <Copy className="mr-1 size-3" />
-                  Copy
-                </Button>
-                {blueUrl ? (
-                  <a href={blueUrl} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "secondary", size: "sm", className: "h-8 text-xs" })}>
-                    Open
-                  </a>
-                ) : null}
-              </div>
+      {/* Info cards row */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-border/50 bg-card/60 ring-1 ring-border/25">
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
+              <Globe className="size-4 text-primary" />
             </div>
-            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <SlotBadge color="GREEN" />
-                {active?.color === "GREEN" && (
-                  <Badge className="bg-emerald-600/90 text-white hover:bg-emerald-600">LIVE</Badge>
-                )}
-              </div>
-              <p className="font-mono text-sm text-foreground">{greenUrl?.replace(/^https?:\/\//, "")}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => greenUrl && copyText(greenUrl, "URL")}
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Live URL</p>
+              {liveUrl ? (
+                <a
+                  href={liveUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate font-mono text-sm text-primary hover:underline"
                 >
-                  <Copy className="mr-1 size-3" />
-                  Copy
-                </Button>
-                {greenUrl ? (
-                  <a href={greenUrl} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "secondary", size: "sm", className: "h-8 text-xs" })}>
-                    Open
-                  </a>
-                ) : null}
-              </div>
+                  {liveUrl.replace(/^https?:\/\//, "")}
+                </a>
+              ) : (
+                <span className="text-sm text-muted-foreground/60">Not deployed</span>
+              )}
             </div>
           </CardContent>
-          {liveUrl && active && (
-            <CardContent className="border-t border-border/40 pt-4">
-              <p className="text-sm text-muted-foreground">
-                Current traffic: <SlotBadge color={active.color} /> →{" "}
-                <span className="font-mono text-foreground">{liveUrl}</span> (maps host{" "}
-                <span className="font-mono">{liveHostPort}</span> → container <span className="font-mono">{project.appPort}</span>)
-              </p>
-            </CardContent>
-          )}
         </Card>
 
         <Card className="border-border/50 bg-card/60 ring-1 ring-border/25">
-          <CardHeader>
-            <CardTitle className="text-base">Quick checks</CardTitle>
-            <CardDescription>Health path inside the container.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div>
-              <span className="text-muted-foreground">Health</span>{" "}
-              <code className="rounded bg-muted/50 px-1.5 py-0.5 font-mono text-xs">{project.healthPath}</code>
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-cyan-500/10">
+              <Server className="size-4 text-cyan-400" />
             </div>
             <div>
-              <span className="text-muted-foreground">Build context</span>{" "}
-              <code className="rounded bg-muted/50 px-1.5 py-0.5 font-mono text-xs">{project.buildContext}</code>
+              <p className="text-xs text-muted-foreground">App port</p>
+              <p className="font-mono text-sm tabular-nums">{project.appPort}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/50 bg-card/60 ring-1 ring-border/25">
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-emerald-500/10">
+              <Layers className="size-4 text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total deploys</p>
+              <p className="text-sm font-semibold tabular-nums">{totalDeploys}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/50 bg-card/60 ring-1 ring-border/25">
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-amber-500/10">
+              <Clock className="size-4 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Last deploy</p>
+              <p className="text-sm">{lastDeploy ? timeAgo(lastDeploy.createdAt) : "Never"}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {/* Blue/green traffic */}
+      <Card className="border-border/50 bg-card/60 ring-1 ring-border/25">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CardTitle>Traffic slots</CardTitle>
+          </div>
+          <CardDescription>
+            Blue <span className="font-mono">{project.basePort}</span> · Green{" "}
+            <span className="font-mono">{project.basePort + 1}</span> — traffic follows the{" "}
+            <span className="font-medium text-foreground">ACTIVE</span> slot
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <SlotBadge color="BLUE" />
+              {active?.color === "BLUE" && (
+                <Badge className="bg-emerald-600/90 text-white hover:bg-emerald-600">LIVE</Badge>
+              )}
+            </div>
+            <p className="font-mono text-sm text-foreground">{blueUrl?.replace(/^https?:\/\//, "")}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => blueUrl && copyText(blueUrl, "URL")}
+              >
+                <Copy className="mr-1 size-3" />
+                Copy
+              </Button>
+              {blueUrl && (
+                <a href={blueUrl} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "secondary", size: "sm", className: "h-7 text-xs" })}>
+                  <ExternalLink className="mr-1 size-3" />
+                  Open
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <SlotBadge color="GREEN" />
+              {active?.color === "GREEN" && (
+                <Badge className="bg-emerald-600/90 text-white hover:bg-emerald-600">LIVE</Badge>
+              )}
+            </div>
+            <p className="font-mono text-sm text-foreground">{greenUrl?.replace(/^https?:\/\//, "")}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => greenUrl && copyText(greenUrl, "URL")}
+              >
+                <Copy className="mr-1 size-3" />
+                Copy
+              </Button>
+              {greenUrl && (
+                <a href={greenUrl} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "secondary", size: "sm", className: "h-7 text-xs" })}>
+                  <ExternalLink className="mr-1 size-3" />
+                  Open
+                </a>
+              )}
+            </div>
+          </div>
+        </CardContent>
+        {liveUrl && active && (
+          <CardContent className="border-t border-border/40 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Current traffic: <SlotBadge color={active.color} /> →{" "}
+              <span className="font-mono text-foreground">{liveUrl}</span> (host{" "}
+              <span className="font-mono">{liveHostPort}</span> → container <span className="font-mono">{project.appPort}</span>)
+            </p>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Quick checks */}
+      <Card className="border-border/50 bg-card/60 ring-1 ring-border/25">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Settings2 className="size-4 text-muted-foreground" />
+            <CardTitle className="text-base">Configuration</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <span className="text-xs text-muted-foreground">Health path</span>
+              <p className="mt-0.5 font-mono text-sm">
+                <code className="rounded bg-muted/50 px-1.5 py-0.5">{project.healthPath}</code>
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Build context</span>
+              <p className="mt-0.5 font-mono text-sm">
+                <code className="rounded bg-muted/50 px-1.5 py-0.5">{project.buildContext}</code>
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Base port range</span>
+              <p className="mt-0.5 font-mono text-sm">
+                <code className="rounded bg-muted/50 px-1.5 py-0.5">
+                  {project.basePort}–{project.basePort + 1}
+                </code>
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Jobs */}
       <Card className="border-border/50 bg-card/50 ring-1 ring-border/30">
         <CardHeader>
           <CardTitle>Jobs</CardTitle>
@@ -268,7 +390,7 @@ export function ProjectDetail() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {job.startedAt ? new Date(job.startedAt).toLocaleString() : "—"}
+                      {job.startedAt ? timeAgo(job.startedAt) : "—"}
                     </TableCell>
                     <TableCell className="pr-6 text-right">
                       <Link
@@ -287,6 +409,7 @@ export function ProjectDetail() {
         </CardContent>
       </Card>
 
+      {/* Deployments */}
       <Card className="border-border/50 bg-card/50 ring-1 ring-border/30">
         <CardHeader>
           <CardTitle>Deployments</CardTitle>
@@ -339,7 +462,7 @@ export function ProjectDetail() {
                       </TableCell>
                       <TableCell className="font-mono text-sm tabular-nums">{project.appPort}</TableCell>
                       <TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">{d.containerName}</TableCell>
-                      <TableCell className="pr-6 text-sm text-muted-foreground">{new Date(d.createdAt).toLocaleString()}</TableCell>
+                      <TableCell className="pr-6 text-sm text-muted-foreground">{timeAgo(d.createdAt)}</TableCell>
                     </TableRow>
                   );
                 })
@@ -350,8 +473,9 @@ export function ProjectDetail() {
       </Card>
 
       <Separator className="opacity-40" />
-      <Link to="/" className={buttonVariants({ variant: "ghost", size: "sm", className: "text-muted-foreground" })}>
-        ← Back to overview
+      <Link to="/" className={buttonVariants({ variant: "ghost", size: "sm", className: "text-muted-foreground gap-1" })}>
+        <ArrowLeft className="size-3.5" />
+        Back to overview
       </Link>
     </div>
   );
