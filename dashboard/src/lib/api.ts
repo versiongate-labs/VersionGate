@@ -181,6 +181,17 @@ export function getJobStatus(jobId: string): Promise<{ job: JobRecord }> {
   return request("GET", `/jobs/${jobId}`);
 }
 
+export function listProjectJobs(
+  projectId: string,
+  opts?: { limit?: number; offset?: number }
+): Promise<{ jobs: JobRecord[]; total: number; limit: number; offset: number }> {
+  const q = new URLSearchParams();
+  if (opts?.limit != null) q.set("limit", String(opts.limit));
+  if (opts?.offset != null) q.set("offset", String(opts.offset));
+  const qs = q.toString();
+  return request("GET", `/projects/${projectId}/jobs${qs ? `?${qs}` : ""}`);
+}
+
 export function createWebSocket(jobId: string): WebSocket {
   const envUrl = import.meta.env.VITE_API_URL as string | undefined;
   if (envUrl && /^https?:\/\//i.test(envUrl)) {
