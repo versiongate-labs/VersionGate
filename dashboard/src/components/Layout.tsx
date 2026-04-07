@@ -24,8 +24,8 @@ import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { CreateProjectLaunchContext } from "@/create-project-launch";
 
 const nav = [
-  { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/server", label: "Server", icon: Server, end: false },
+  { to: "/", label: "Deployments", icon: LayoutDashboard, end: true },
+  { to: "/server", label: "Host metrics", icon: Server, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
 
