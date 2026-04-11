@@ -42,4 +42,39 @@ export const config = {
     maxLatencyMs: 2000,
     maxRetries: 15, // 30 seconds total — accommodates slow-booting apps
   },
+  /** Long random string. Enables GET/POST `/api/v1/system/update/*` (Bearer auth). */
+  selfUpdateSecret: optionalEnv("SELF_UPDATE_SECRET", "").trim(),
+  /** Tracked branch for git fetch/merge (must match your deploy remote). */
+  selfUpdateGitBranch: optionalEnv("SELF_UPDATE_GIT_BRANCH", "main"),
+  /** If > 0, periodically fetch origin and log or auto-apply (see SELF_UPDATE_AUTO_APPLY). */
+  selfUpdatePollMs: Math.max(0, parseInt(optionalEnv("SELF_UPDATE_POLL_MS", "0"), 10) || 0),
+  /** When true with SELF_UPDATE_POLL_MS, runs apply when origin is ahead (fast-forward only). */
+  selfUpdateAutoApply:
+    optionalEnv("SELF_UPDATE_AUTO_APPLY", "").toLowerCase() === "true" ||
+    optionalEnv("SELF_UPDATE_AUTO_APPLY", "") === "1",
+  /** Session cookie `Secure` flag — enable when the UI is HTTPS-only. */
+  cookieSecure: optionalEnv("COOKIE_SECURE", "").toLowerCase() === "true",
 } as const;
+
+/** Live values (updated when .env is patched at runtime). */
+export function selfUpdateSecretLive(): string {
+  return (process.env.SELF_UPDATE_SECRET ?? "").trim();
+}
+
+export function selfUpdateBranchLive(): string {
+  const b = (process.env.SELF_UPDATE_GIT_BRANCH ?? config.selfUpdateGitBranch).trim();
+  return b || "main";
+}
+
+export function selfUpdatePollMsLive(): number {
+  const raw = process.env.SELF_UPDATE_POLL_MS;
+  const n = raw !== undefined ? parseInt(raw, 10) : config.selfUpdatePollMs;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function selfUpdateAutoApplyLive(): boolean {
+  const v = (process.env.SELF_UPDATE_AUTO_APPLY ?? "").toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return config.selfUpdateAutoApply;
+}

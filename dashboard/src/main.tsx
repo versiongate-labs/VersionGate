@@ -11,12 +11,14 @@ import { Projects } from "@/pages/Projects";
 import { Settings } from "@/pages/Settings";
 import { Setup } from "@/pages/Setup";
 import { Activity } from "@/pages/Activity";
+import { Login } from "@/pages/Login";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
         <Route path="/setup" element={<Setup />} />
+        <Route path="/login" element={<Login />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Overview />} />
           <Route path="/projects" element={<Projects />} />

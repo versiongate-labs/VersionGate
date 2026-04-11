@@ -29,10 +29,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    credentials: "include",
   });
 
   if (!res.ok) {
     const data = await parseJsonSafe(res);
+    if (res.status === 401 && typeof window !== "undefined") {
+      const p = window.location.pathname;
+      if (!p.startsWith("/login") && !p.startsWith("/setup")) {
+        window.location.assign("/login");
+      }
+    }
     const msg =
       typeof data === "object" && data !== null && "message" in data
         ? String((data as { message?: unknown }).message)
@@ -211,6 +218,33 @@ export function getSetupStatus(): Promise<SetupStatus> {
   return request("GET", "/setup/status");
 }
 
+export interface AuthStatus {
+  databaseReady: boolean;
+  hasUsers: boolean;
+  authenticated: boolean;
+  user?: { id: string; email: string };
+}
+
+export function getAuthStatus(): Promise<AuthStatus> {
+  return request("GET", "/auth/status");
+}
+
+export function getAuthMe(): Promise<{ authenticated: boolean; user?: { id: string; email: string } }> {
+  return request("GET", "/auth/me");
+}
+
+export function authRegister(body: { email: string; password: string }): Promise<{ user: { id: string; email: string } }> {
+  return request("POST", "/auth/register", body);
+}
+
+export function authLogin(body: { email: string; password: string }): Promise<{ user: { id: string; email: string } }> {
+  return request("POST", "/auth/login", body);
+}
+
+export function authLogout(): Promise<{ ok: boolean }> {
+  return request("POST", "/auth/logout");
+}
+
 export interface InstanceSettings {
   engineVersion: string;
   nodeEnv: string;
@@ -225,6 +259,43 @@ export interface InstanceSettings {
   needsRestart: boolean;
   encryptionKeyConfigured: boolean;
   geminiConfigured: boolean;
+  selfUpdateConfigured: boolean;
+  selfUpdateGitBranch: string;
+  selfUpdatePollMs: number;
+  selfUpdateAutoApply: boolean;
+}
+
+export interface SelfUpdateGitStatus {
+  branch: string;
+  isGitRepo: boolean;
+  currentCommit: string;
+  remoteCommit: string | null;
+  behind: boolean;
+  message?: string;
+}
+
+export interface SelfUpdateSettingsResponse {
+  configured: boolean;
+  branch: string;
+  pollMs: number;
+  autoApply: boolean;
+  git: SelfUpdateGitStatus | null;
+}
+
+export function getSelfUpdateSettings(): Promise<SelfUpdateSettingsResponse> {
+  return request("GET", "/settings/self-update");
+}
+
+export function enableSelfUpdateFromSettings(): Promise<{ message: string }> {
+  return request("POST", "/settings/self-update/enable");
+}
+
+export function checkSelfUpdateFromSettings(): Promise<SelfUpdateGitStatus> {
+  return request("POST", "/settings/self-update/check");
+}
+
+export function applySelfUpdateFromSettings(): Promise<{ ok: boolean; steps: string[]; error?: string }> {
+  return request("POST", "/settings/self-update/apply");
 }
 
 export function getInstanceSettings(): Promise<InstanceSettings> {
@@ -241,6 +312,8 @@ export function patchInstanceEnv(env: Record<string, string>): Promise<{
 export function applySetup(body: {
   domain: string;
   databaseUrl: string;
+  adminEmail: string;
+  adminPassword: string;
   geminiApiKey?: string;
 }): Promise<{ configured: boolean }> {
   return request("POST", "/setup/apply", body);

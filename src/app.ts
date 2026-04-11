@@ -15,6 +15,8 @@ import { settingsRoutes } from "./routes/settings.routes";
 import { logsRoutes } from "./routes/logs.route";
 import { jobRoutes } from "./routes/job.routes";
 import { requireDatabaseConfigured } from "./middleware/require-database";
+import { requireApiAuth } from "./middleware/require-api-auth";
+import { authRoutes } from "./routes/auth.routes";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -37,6 +39,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     /^\/api\/v1\/system\/server-stats$/,
     /^\/api\/v1\/system\/server-dashboard$/,
     /^\/api\/v1\/setup\/status$/,
+    /^\/api\/v1\/auth\/status$/,
     /^\/api\/v1\/settings\/instance$/,
     /^\/api\/v1\/projects$/,
     /^\/api\/v1\/deployments$/,
@@ -55,6 +58,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (/\/metrics$/.test(pathname) || /\/logs$/.test(pathname)) return true;
     return false;
   };
+
+  app.addHook("preHandler", requireApiAuth);
 
   app.addHook("onResponse", async (req, reply) => {
     const pathname = pathOnly(req.url);
@@ -103,6 +108,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   // ── API Routes (registered before static — order matters) ──────────────────
+  await app.register(authRoutes, { prefix: "/api/v1" });
+
   const dbRoutes = async (instance: FastifyInstance): Promise<void> => {
     instance.addHook("preHandler", requireDatabaseConfigured);
   };
