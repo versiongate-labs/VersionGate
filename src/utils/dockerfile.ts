@@ -107,6 +107,14 @@ async function tryGenerateDockerfile(repoDir: string, appPort: number): Promise<
     // not Go
   }
 
+  // 4. Static HTML / no build step (index.html at repo root of this directory)
+  try {
+    await fs.access(path.join(repoDir, "index.html"));
+    return buildStaticHtmlDockerfile(appPort);
+  } catch {
+    // not a simple static site in this folder
+  }
+
   return null;
 }
 
@@ -246,6 +254,35 @@ function buildPythonDockerfile(appPort: number): string {
     `EXPOSE ${appPort}`,
     "",
     'CMD ["python", "app.py"]',
+  ]);
+}
+
+// ── Static HTML (nginx) ─────────────────────────────────────────────────────────
+
+/** Serves files from the image root with nginx. Requires `index.html` in the build context. Use app port 80 unless you need another port. */
+function buildStaticHtmlDockerfile(appPort: number): string {
+  const p = String(appPort);
+  return lines([
+    "# syntax=docker/dockerfile:1",
+    AUTO_GENERATED_MARKER,
+    "FROM nginx:1.25-alpine",
+    "",
+    "COPY . /usr/share/nginx/html",
+    "RUN rm -f /etc/nginx/conf.d/default.conf",
+    "RUN cat > /etc/nginx/conf.d/default.conf <<'EOF'",
+    "server {",
+    `    listen ${p};`,
+    "    server_name localhost;",
+    "    root /usr/share/nginx/html;",
+    "    index index.html;",
+    "    location / {",
+    "        try_files $uri $uri/ =404;",
+    "    }",
+    "}",
+    "EOF",
+    "",
+    `EXPOSE ${p}`,
+    "",
   ]);
 }
 
