@@ -9,7 +9,6 @@ import { Toaster } from "@/components/ui/sonner";
 
 export function Login() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [loading, setLoading] = useState(true);
   /** When true, DB is up but User count is 0 — only registration is allowed. */
   const [bootstrapPending, setBootstrapPending] = useState(false);
