@@ -157,11 +157,6 @@ export function Layout() {
                         </NavLink>
                       </SidebarMenuItem>
                     ))}
-                    <SidebarMenuItem>
-                      <button type="button" className={navBtn} onClick={() => setCreateProjectOpen(true)}>
-                        <span>New project</span>
-                      </button>
-                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
