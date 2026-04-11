@@ -178,6 +178,15 @@ export function Settings() {
       const r = await patchInstanceEnv(env);
       toast.success(r.message);
       await refreshSelfUpdate();
+      if (suOpts.autoApply === "true") {
+        const ms = p === "" ? 0 : Number.parseInt(p, 10);
+        if (!Number.isFinite(ms) || ms <= 0) {
+          toast.info("Polling is off", {
+            description:
+              "SELF_UPDATE_AUTO_APPLY only runs after a poll finds commits behind. Set SELF_UPDATE_POLL_MS (e.g. 300000) to enable automatic checks.",
+          });
+        }
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -341,8 +350,13 @@ export function Settings() {
 
               <form onSubmit={(e) => void onSaveSelfUpdateOpts(e)} className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Options are written to <code className="rounded bg-muted px-1 font-mono text-xs">.env</code>. Polling uses the
-                  secret you generated; increase the interval to reduce git fetch noise.
+                  Options are written to <code className="rounded bg-muted px-1 font-mono text-xs">.env</code>.{" "}
+                  <strong className="font-medium text-foreground">Auto-apply only runs when polling is on:</strong> set{" "}
+                  <code className="rounded bg-muted px-1 font-mono text-xs">SELF_UPDATE_POLL_MS</code> to a positive number
+                  (milliseconds), for example <code className="rounded bg-muted px-1 font-mono text-xs">300000</code> for five
+                  minutes. <code className="rounded bg-muted px-1 font-mono text-xs">0</code> disables the poll loop (use
+                  Check / Update buttons or webhook instead). Polling uses the generated secret; larger intervals mean fewer{" "}
+                  <code className="rounded bg-muted px-1 font-mono text-xs">git fetch</code> calls.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
