@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { config } from "../config/env";
+import { selfUpdateBranchLive, selfUpdateSecretLive } from "../config/env";
 import { logger } from "../utils/logger";
 import {
   applySelfUpdate,
@@ -23,30 +23,32 @@ function bearerToken(req: FastifyRequest): string | undefined {
 }
 
 export async function selfUpdateStatusHandler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!config.selfUpdateSecret) {
+  const secret = selfUpdateSecretLive();
+  if (!secret) {
     featureDisabled(reply);
     return;
   }
   const token = bearerToken(req);
-  if (!token || !selfUpdateTokensMatch(token, config.selfUpdateSecret)) {
+  if (!token || !selfUpdateTokensMatch(token, secret)) {
     unauthorized(reply);
     return;
   }
-  const status = await getSelfUpdateStatus(config.selfUpdateGitBranch);
+  const status = await getSelfUpdateStatus(selfUpdateBranchLive());
   reply.code(200).send(status);
 }
 
 export async function selfUpdateApplyHandler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!config.selfUpdateSecret) {
+  const secret = selfUpdateSecretLive();
+  if (!secret) {
     featureDisabled(reply);
     return;
   }
   const token = bearerToken(req);
-  if (!token || !selfUpdateTokensMatch(token, config.selfUpdateSecret)) {
+  if (!token || !selfUpdateTokensMatch(token, secret)) {
     unauthorized(reply);
     return;
   }
-  const result = await applySelfUpdate(config.selfUpdateGitBranch);
+  const result = await applySelfUpdate(selfUpdateBranchLive());
   if (!result.ok) {
     reply.code(500).send(result);
     return;
@@ -56,18 +58,19 @@ export async function selfUpdateApplyHandler(req: FastifyRequest, reply: Fastify
 
 /** Fire-and-forget hook for CI or cron: `POST ?token=...` (same value as SELF_UPDATE_SECRET). */
 export async function selfUpdateWebhookHandler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!config.selfUpdateSecret) {
+  const secret = selfUpdateSecretLive();
+  if (!secret) {
     featureDisabled(reply);
     return;
   }
   const q = req.query as { token?: string };
   const token = typeof q.token === "string" ? q.token : "";
-  if (!selfUpdateTokensMatch(token, config.selfUpdateSecret)) {
+  if (!selfUpdateTokensMatch(token, secret)) {
     unauthorized(reply);
     return;
   }
 
-  const status = await getSelfUpdateStatus(config.selfUpdateGitBranch);
+  const status = await getSelfUpdateStatus(selfUpdateBranchLive());
   if (!status.isGitRepo || status.message) {
     reply.code(200).send({ ok: false, skipped: true, reason: status.message ?? "Not a git repo" });
     return;
@@ -77,7 +80,7 @@ export async function selfUpdateWebhookHandler(req: FastifyRequest, reply: Fasti
     return;
   }
 
-  void applySelfUpdate(config.selfUpdateGitBranch).then((r) => {
+  void applySelfUpdate(selfUpdateBranchLive()).then((r) => {
     logger.info(r, "Self-update webhook apply finished");
   });
 

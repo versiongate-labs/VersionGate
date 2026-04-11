@@ -1,8 +1,19 @@
 import { FastifyInstance } from "fastify";
-import { getInstanceSettingsHandler, patchInstanceEnvHandler } from "../controllers/settings.controller";
+import {
+  getInstanceSettingsHandler,
+  patchInstanceEnvHandler,
+  getSelfUpdateSettingsHandler,
+  postSelfUpdateEnableHandler,
+  postSelfUpdateCheckHandler,
+  postSelfUpdateApplyHandler,
+} from "../controllers/settings.controller";
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings/instance", { handler: getInstanceSettingsHandler });
+  app.get("/settings/self-update", { handler: getSelfUpdateSettingsHandler });
+  app.post("/settings/self-update/enable", { handler: postSelfUpdateEnableHandler });
+  app.post("/settings/self-update/check", { handler: postSelfUpdateCheckHandler });
+  app.post("/settings/self-update/apply", { handler: postSelfUpdateApplyHandler });
   app.patch("/settings/env", {
     schema: {
       body: {

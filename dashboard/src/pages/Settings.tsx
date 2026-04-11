@@ -6,7 +6,18 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getInstanceSettings, getSetupStatus, patchInstanceEnv, type InstanceSettings, type SetupStatus } from "@/lib/api";
+import {
+  applySelfUpdateFromSettings,
+  checkSelfUpdateFromSettings,
+  enableSelfUpdateFromSettings,
+  getInstanceSettings,
+  getSelfUpdateSettings,
+  getSetupStatus,
+  patchInstanceEnv,
+  type InstanceSettings,
+  type SelfUpdateSettingsResponse,
+  type SetupStatus,
+} from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DonutChart } from "@/components/charts/DonutChart";
@@ -40,16 +51,25 @@ export function Settings() {
   const [loading, setLoading] = useState(true);
   const [envDraft, setEnvDraft] = useState<Record<string, string>>({});
   const [envSaving, setEnvSaving] = useState(false);
+  const [selfUpdate, setSelfUpdate] = useState<SelfUpdateSettingsResponse | null>(null);
+  const [suOpts, setSuOpts] = useState({ branch: "", pollMs: "", autoApply: "false" });
+  const [suBusy, setSuBusy] = useState<"enable" | "check" | "apply" | "saveOpts" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       setLoading(true);
       try {
-        const [i, s] = await Promise.all([getInstanceSettings(), getSetupStatus()]);
+        const [i, s, su] = await Promise.all([getInstanceSettings(), getSetupStatus(), getSelfUpdateSettings()]);
         if (!cancelled) {
           setInstance(i);
           setSetup(s);
+          setSelfUpdate(su);
+          setSuOpts({
+            branch: su.branch,
+            pollMs: su.pollMs > 0 ? String(su.pollMs) : "",
+            autoApply: su.autoApply ? "true" : "false",
+          });
         }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to load settings");
@@ -83,6 +103,88 @@ export function Settings() {
     setEnvDraft((d) => ({ ...d, [key]: value }));
   };
 
+  const refreshSelfUpdate = async () => {
+    const su = await getSelfUpdateSettings();
+    setSelfUpdate(su);
+    setSuOpts({
+      branch: su.branch,
+      pollMs: su.pollMs > 0 ? String(su.pollMs) : "",
+      autoApply: su.autoApply ? "true" : "false",
+    });
+    const i = await getInstanceSettings();
+    setInstance(i);
+  };
+
+  const onEnableSelfUpdate = async () => {
+    setSuBusy("enable");
+    try {
+      const r = await enableSelfUpdateFromSettings();
+      toast.success(r.message);
+      await refreshSelfUpdate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to enable");
+    } finally {
+      setSuBusy(null);
+    }
+  };
+
+  const onCheckSelfUpdate = async () => {
+    setSuBusy("check");
+    try {
+      const g = await checkSelfUpdateFromSettings();
+      setSelfUpdate((prev) => (prev ? { ...prev, git: g } : prev));
+      if (g.message) toast.warning(g.message);
+      else if (g.behind) toast.info("A newer revision is available on the remote.");
+      else toast.success("Already up to date.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Check failed");
+    } finally {
+      setSuBusy(null);
+    }
+  };
+
+  const onApplySelfUpdate = async () => {
+    if (!window.confirm("Pull latest code, rebuild the dashboard, and reload PM2? The UI may disconnect briefly.")) {
+      return;
+    }
+    setSuBusy("apply");
+    try {
+      const r = await applySelfUpdateFromSettings();
+      if (r.ok) {
+        toast.success("Update applied — PM2 reload scheduled. Refresh this page in a few seconds.");
+        await refreshSelfUpdate();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setSuBusy(null);
+    }
+  };
+
+  const onSaveSelfUpdateOpts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const env: Record<string, string> = {};
+    const b = suOpts.branch.trim();
+    const p = suOpts.pollMs.trim();
+    if (b) env.SELF_UPDATE_GIT_BRANCH = b;
+    if (p !== "") env.SELF_UPDATE_POLL_MS = p;
+    env.SELF_UPDATE_AUTO_APPLY = suOpts.autoApply;
+    if (Object.keys(env).length === 0) {
+      toast.error("Set at least one option.");
+      return;
+    }
+    setSuBusy("saveOpts");
+    try {
+      const r = await patchInstanceEnv(env);
+      toast.success(r.message);
+      await refreshSelfUpdate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSuBusy(null);
+    }
+  };
+
   const onSaveEnv = async (e: React.FormEvent) => {
     e.preventDefault();
     const env: Record<string, string> = {};
@@ -109,7 +211,7 @@ export function Settings() {
     }
   };
 
-  if (loading || !instance || !setup) {
+  if (loading || !instance || !setup || !selfUpdate) {
     return (
       <div className="w-full max-w-4xl space-y-8">
         <Skeleton className="h-10 w-64" />
@@ -161,6 +263,142 @@ export function Settings() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-border/50 bg-card/60 ring-1 ring-border/30">
+        <CardHeader>
+          <CardTitle>Application updates</CardTitle>
+          <CardDescription>
+            Pull new VersionGate commits from git, install dependencies, run migrations, rebuild the dashboard, and reload PM2.
+            No GitHub OAuth — this only updates <span className="font-medium text-foreground">this</span> server&apos;s clone. A random
+            webhook token is created when you enable self-update (stored in <code className="rounded bg-muted px-1 font-mono text-xs">.env</code>,
+            never shown again). Anyone who can open Settings can trigger an update — protect the dashboard network.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={selfUpdate.configured ? "default" : "secondary"} className="font-mono text-xs">
+              {selfUpdate.configured ? "Self-update enabled" : "Not enabled"}
+            </Badge>
+            {!selfUpdate.configured ? (
+              <Button type="button" size="sm" disabled={suBusy !== null} onClick={() => void onEnableSelfUpdate()}>
+                {suBusy === "enable" ? "Enabling…" : "Enable in-dashboard updates"}
+              </Button>
+            ) : null}
+          </div>
+
+          {selfUpdate.configured ? (
+            <>
+              <dl className="space-y-3">
+                <Row label="Tracked branch" value={selfUpdate.branch} />
+                <Row label="Poll interval (ms)" value={selfUpdate.pollMs > 0 ? String(selfUpdate.pollMs) : "off"} />
+                <Row label="Auto-apply on poll" value={boolBadge(selfUpdate.autoApply, "Yes", "No")} />
+              </dl>
+              {selfUpdate.git ? (
+                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm">
+                  <p className="font-mono text-xs text-muted-foreground">
+                    Local{" "}
+                    <span className="text-foreground">
+                      {selfUpdate.git.currentCommit ? selfUpdate.git.currentCommit.slice(0, 7) : "—"}
+                    </span>
+                    {selfUpdate.git.remoteCommit ? (
+                      <>
+                        {" "}
+                        · remote <span className="text-foreground">{selfUpdate.git.remoteCommit.slice(0, 7)}</span>
+                      </>
+                    ) : null}
+                  </p>
+                  {selfUpdate.git.message ? (
+                    <p className="mt-1 text-amber-600 dark:text-amber-400">{selfUpdate.git.message}</p>
+                  ) : selfUpdate.git.behind ? (
+                    <p className="mt-1 text-foreground">Remote is ahead — you can update.</p>
+                  ) : selfUpdate.git.isGitRepo ? (
+                    <p className="mt-1 text-muted-foreground">Up to date with origin.</p>
+                  ) : (
+                    <p className="mt-1 text-muted-foreground">Not a git checkout — use your image or package pipeline.</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Run “Check for updates” to compare with origin.</p>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" disabled={suBusy !== null} onClick={() => void onCheckSelfUpdate()}>
+                  {suBusy === "check" ? "Checking…" : "Check for updates"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    suBusy !== null || !selfUpdate.git?.isGitRepo || !selfUpdate.git.behind || Boolean(selfUpdate.git.message)
+                  }
+                  onClick={() => void onApplySelfUpdate()}
+                >
+                  {suBusy === "apply" ? "Updating…" : "Update and restart PM2"}
+                </Button>
+              </div>
+
+              <Separator className="bg-border/50" />
+
+              <form onSubmit={(e) => void onSaveSelfUpdateOpts(e)} className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Options are written to <code className="rounded bg-muted px-1 font-mono text-xs">.env</code>. Polling uses the
+                  secret you generated; increase the interval to reduce git fetch noise.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="su-branch">
+                      SELF_UPDATE_GIT_BRANCH
+                    </label>
+                    <Input
+                      id="su-branch"
+                      value={suOpts.branch}
+                      onChange={(e) => setSuOpts((o) => ({ ...o, branch: e.target.value }))}
+                      placeholder="main"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="su-poll">
+                      SELF_UPDATE_POLL_MS
+                    </label>
+                    <Input
+                      id="su-poll"
+                      value={suOpts.pollMs}
+                      onChange={(e) => setSuOpts((o) => ({ ...o, pollMs: e.target.value }))}
+                      placeholder="0 = off"
+                      inputMode="numeric"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="su-auto">
+                      SELF_UPDATE_AUTO_APPLY
+                    </label>
+                    <select
+                      id="su-auto"
+                      value={suOpts.autoApply}
+                      onChange={(e) => setSuOpts((o) => ({ ...o, autoApply: e.target.value }))}
+                      className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                    >
+                      <option value="false">false</option>
+                      <option value="true">true</option>
+                    </select>
+                  </div>
+                </div>
+                <Button type="submit" size="sm" variant="secondary" disabled={suBusy !== null}>
+                  {suBusy === "saveOpts" ? "Saving…" : "Save self-update options"}
+                </Button>
+              </form>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Enable to generate <code className="rounded bg-muted px-1 font-mono text-xs">SELF_UPDATE_SECRET</code> and unlock
+              check/apply actions. You can still use <code className="rounded bg-muted px-1 font-mono text-xs">bun run self-update</code>{" "}
+              from SSH without this.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="border-border/50 bg-card/60 ring-1 ring-border/30">
         <CardHeader>

@@ -1,10 +1,19 @@
+import { randomBytes } from "crypto";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { FastifyRequest, FastifyReply } from "fastify";
-import { config } from "../config/env";
+import {
+  config,
+  selfUpdateAutoApplyLive,
+  selfUpdateBranchLive,
+  selfUpdatePollMsLive,
+  selfUpdateSecretLive,
+} from "../config/env";
 import { envFilePath, projectRoot } from "../utils/paths";
 import { mergeIntoDotenv, writeEnvWithBackup } from "../utils/env-file";
 import { logger } from "../utils/logger";
+import { applySelfUpdate, getSelfUpdateStatus } from "../services/self-update.service";
+import { kickSelfUpdatePoll } from "../services/self-update-poll";
 
 const DB_URL_REGEX = /^DATABASE_URL\s*=\s*"?([^"\n\r]+)"?\s*$/m;
 
@@ -73,6 +82,10 @@ export async function getInstanceSettingsHandler(
     needsRestart,
     encryptionKeyConfigured,
     geminiConfigured,
+    selfUpdateConfigured: Boolean(selfUpdateSecretLive()),
+    selfUpdateGitBranch: selfUpdateBranchLive(),
+    selfUpdatePollMs: selfUpdatePollMsLive(),
+    selfUpdateAutoApply: selfUpdateAutoApplyLive(),
   });
 }
 
@@ -90,6 +103,10 @@ const PATCHABLE_ENV_KEYS = new Set([
   "PORT",
   "MONIX_PATH",
   "MONIX_PORT",
+  "SELF_UPDATE_SECRET",
+  "SELF_UPDATE_GIT_BRANCH",
+  "SELF_UPDATE_POLL_MS",
+  "SELF_UPDATE_AUTO_APPLY",
 ]);
 
 interface PatchEnvBody {
@@ -146,6 +163,36 @@ export async function patchInstanceEnvHandler(
     return reply.code(400).send({ error: "ValidationError", message: "MONIX_PORT must be a positive integer" });
   }
 
+  if (updates.SELF_UPDATE_POLL_MS !== undefined) {
+    const t = updates.SELF_UPDATE_POLL_MS.trim();
+    if (!/^\d+$/.test(t)) {
+      return reply.code(400).send({ error: "ValidationError", message: "SELF_UPDATE_POLL_MS must be a non-negative integer" });
+    }
+    updates.SELF_UPDATE_POLL_MS = t;
+  }
+
+  if (updates.SELF_UPDATE_AUTO_APPLY !== undefined) {
+    const v = updates.SELF_UPDATE_AUTO_APPLY.toLowerCase();
+    if (!["true", "false", "1", "0"].includes(v)) {
+      return reply.code(400).send({
+        error: "ValidationError",
+        message: "SELF_UPDATE_AUTO_APPLY must be true, false, 1, or 0",
+      });
+    }
+    updates.SELF_UPDATE_AUTO_APPLY = v === "true" || v === "1" ? "true" : "false";
+  }
+
+  if (updates.SELF_UPDATE_GIT_BRANCH !== undefined) {
+    const b = updates.SELF_UPDATE_GIT_BRANCH.trim();
+    if (!b || !/^[a-zA-Z0-9/._-]+$/.test(b)) {
+      return reply.code(400).send({
+        error: "ValidationError",
+        message: "SELF_UPDATE_GIT_BRANCH must be a non-empty branch name",
+      });
+    }
+    updates.SELF_UPDATE_GIT_BRANCH = b;
+  }
+
   try {
     const next = mergeIntoDotenv(updates);
     writeEnvWithBackup(next);
@@ -155,8 +202,96 @@ export async function patchInstanceEnvHandler(
     return reply.code(500).send({ error: "WriteError", message: msg });
   }
 
+  const selfKeys = [
+    "SELF_UPDATE_SECRET",
+    "SELF_UPDATE_GIT_BRANCH",
+    "SELF_UPDATE_POLL_MS",
+    "SELF_UPDATE_AUTO_APPLY",
+  ] as const;
+  let touchedSelf = false;
+  for (const k of selfKeys) {
+    if (updates[k] !== undefined) {
+      process.env[k] = updates[k];
+      touchedSelf = true;
+    }
+  }
+  if (touchedSelf) {
+    kickSelfUpdatePoll();
+  }
+
   return reply.code(200).send({
     message: "Environment file updated. Restart the API and worker to apply changes.",
     keysWritten: Object.keys(updates),
   });
+}
+
+export async function getSelfUpdateSettingsHandler(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const branch = selfUpdateBranchLive();
+  let git: Awaited<ReturnType<typeof getSelfUpdateStatus>> | null = null;
+  if (selfUpdateSecretLive()) {
+    try {
+      git = await getSelfUpdateStatus(branch);
+    } catch {
+      git = null;
+    }
+  }
+  reply.code(200).send({
+    configured: Boolean(selfUpdateSecretLive()),
+    branch,
+    pollMs: selfUpdatePollMsLive(),
+    autoApply: selfUpdateAutoApplyLive(),
+    git,
+  });
+}
+
+export async function postSelfUpdateEnableHandler(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (selfUpdateSecretLive()) {
+    return reply.code(400).send({
+      error: "AlreadyEnabled",
+      message:
+        "SELF_UPDATE_SECRET is already set. Remove it from .env to regenerate, or paste a new secret using the env editor.",
+    });
+  }
+  const secret = randomBytes(32).toString("hex");
+  try {
+    const next = mergeIntoDotenv({ SELF_UPDATE_SECRET: secret });
+    writeEnvWithBackup(next);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "postSelfUpdateEnable: write failed");
+    return reply.code(500).send({ error: "WriteError", message: msg });
+  }
+  process.env.SELF_UPDATE_SECRET = secret;
+  kickSelfUpdatePoll();
+  logger.info("Self-update enabled from Settings (secret written to .env, not logged)");
+  reply.code(200).send({
+    message:
+      "Self-update enabled. The secret was saved to .env and is not shown again. Use “Check for updates” below, or call the webhook with that token.",
+  });
+}
+
+export async function postSelfUpdateCheckHandler(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!selfUpdateSecretLive()) {
+    return reply.code(400).send({
+      error: "NotConfigured",
+      message: "Enable self-update first, or set SELF_UPDATE_SECRET in .env",
+    });
+  }
+  const status = await getSelfUpdateStatus(selfUpdateBranchLive());
+  reply.code(200).send(status);
+}
+
+export async function postSelfUpdateApplyHandler(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!selfUpdateSecretLive()) {
+    return reply.code(400).send({
+      error: "NotConfigured",
+      message: "Enable self-update first, or set SELF_UPDATE_SECRET in .env",
+    });
+  }
+  const result = await applySelfUpdate(selfUpdateBranchLive());
+  if (!result.ok) {
+    reply.code(500).send(result);
+    return;
+  }
+  reply.code(200).send(result);
 }

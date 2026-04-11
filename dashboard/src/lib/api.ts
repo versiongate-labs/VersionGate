@@ -225,6 +225,43 @@ export interface InstanceSettings {
   needsRestart: boolean;
   encryptionKeyConfigured: boolean;
   geminiConfigured: boolean;
+  selfUpdateConfigured: boolean;
+  selfUpdateGitBranch: string;
+  selfUpdatePollMs: number;
+  selfUpdateAutoApply: boolean;
+}
+
+export interface SelfUpdateGitStatus {
+  branch: string;
+  isGitRepo: boolean;
+  currentCommit: string;
+  remoteCommit: string | null;
+  behind: boolean;
+  message?: string;
+}
+
+export interface SelfUpdateSettingsResponse {
+  configured: boolean;
+  branch: string;
+  pollMs: number;
+  autoApply: boolean;
+  git: SelfUpdateGitStatus | null;
+}
+
+export function getSelfUpdateSettings(): Promise<SelfUpdateSettingsResponse> {
+  return request("GET", "/settings/self-update");
+}
+
+export function enableSelfUpdateFromSettings(): Promise<{ message: string }> {
+  return request("POST", "/settings/self-update/enable");
+}
+
+export function checkSelfUpdateFromSettings(): Promise<SelfUpdateGitStatus> {
+  return request("POST", "/settings/self-update/check");
+}
+
+export function applySelfUpdateFromSettings(): Promise<{ ok: boolean; steps: string[]; error?: string }> {
+  return request("POST", "/settings/self-update/apply");
 }
 
 export function getInstanceSettings(): Promise<InstanceSettings> {

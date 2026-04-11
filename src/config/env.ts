@@ -53,3 +53,26 @@ export const config = {
     optionalEnv("SELF_UPDATE_AUTO_APPLY", "").toLowerCase() === "true" ||
     optionalEnv("SELF_UPDATE_AUTO_APPLY", "") === "1",
 } as const;
+
+/** Live values (updated when .env is patched at runtime). */
+export function selfUpdateSecretLive(): string {
+  return (process.env.SELF_UPDATE_SECRET ?? "").trim();
+}
+
+export function selfUpdateBranchLive(): string {
+  const b = (process.env.SELF_UPDATE_GIT_BRANCH ?? config.selfUpdateGitBranch).trim();
+  return b || "main";
+}
+
+export function selfUpdatePollMsLive(): number {
+  const raw = process.env.SELF_UPDATE_POLL_MS;
+  const n = raw !== undefined ? parseInt(raw, 10) : config.selfUpdatePollMs;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function selfUpdateAutoApplyLive(): boolean {
+  const v = (process.env.SELF_UPDATE_AUTO_APPLY ?? "").toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return config.selfUpdateAutoApply;
+}
