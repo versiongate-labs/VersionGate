@@ -10,6 +10,7 @@ import {
   generatePipelineHandler,
 } from "../controllers/project.controller";
 import { listEnvironmentsHandler } from "../controllers/environment.controller";
+import { promoteEnvironmentHandler } from "../controllers/promote.controller";
 
 const envSchema = {
   type: "object",
@@ -195,5 +196,31 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     handler: rollbackProjectHandler,
+  });
+
+  app.post("/projects/:id/environments/:envId/promote", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["sourceEnvironmentId"],
+        properties: {
+          sourceEnvironmentId: { type: "string", minLength: 1 },
+        },
+        additionalProperties: false,
+      },
+      response: {
+        202: {
+          type: "object",
+          properties: {
+            jobId: { type: "string" },
+            status: { type: "string" },
+            environmentId: { type: "string" },
+            sourceEnvironmentId: { type: "string" },
+            imageTag: { type: "string" },
+          },
+        },
+      },
+    },
+    handler: promoteEnvironmentHandler,
   });
 }
