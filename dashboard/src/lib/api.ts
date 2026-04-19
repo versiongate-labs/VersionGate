@@ -86,6 +86,7 @@ export interface Deployment {
   /** Derived from the parent environment for dashboard filtering */
   projectId: string;
   environmentId?: string;
+  promotedFromId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -175,6 +176,23 @@ export function listEnvironments(projectId: string): Promise<{ environments: Env
 
 export function rollback(projectId: string): Promise<{ jobId: string; status: string; environmentId?: string }> {
   return request("POST", `/projects/${projectId}/rollback`);
+}
+
+/** Reuse the source environment's ACTIVE image on the target environment (no build). */
+export function promoteEnvironment(
+  projectId: string,
+  targetEnvironmentId: string,
+  sourceEnvironmentId: string
+): Promise<{
+  jobId: string;
+  status: string;
+  environmentId: string;
+  sourceEnvironmentId: string;
+  imageTag: string;
+}> {
+  return request("POST", `/projects/${projectId}/environments/${targetEnvironmentId}/promote`, {
+    sourceEnvironmentId,
+  });
 }
 
 export function getDeployments(projectId: string): Promise<{ deployments: Deployment[] }> {
