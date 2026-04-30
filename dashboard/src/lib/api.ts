@@ -40,10 +40,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         window.location.assign("/login");
       }
     }
-    const msg =
-      typeof data === "object" && data !== null && "message" in data
-        ? String((data as { message?: unknown }).message)
-        : `HTTP ${res.status}`;
+    let msg = `HTTP ${res.status}`;
+    if (typeof data === "object" && data !== null) {
+      const o = data as { message?: unknown; error?: unknown };
+      if (o.message != null && String(o.message)) msg = String(o.message);
+      else if (o.error != null && String(o.error)) msg = String(o.error);
+    }
     throw new ApiError(msg, res.status, data);
   }
 

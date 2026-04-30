@@ -85,6 +85,10 @@ export function UpdateAvailableBanner() {
         dismissedRef.current = false;
         sessionStorage.removeItem(DISMISS_KEY);
         await poll();
+      } else {
+        toast.error(r.error ?? "Update failed", {
+          description: r.steps?.length ? r.steps.slice(-3).join(" → ") : undefined,
+        });
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Update failed");

@@ -289,9 +289,6 @@ export async function postSelfUpdateApplyHandler(_req: FastifyRequest, reply: Fa
     });
   }
   const result = await applySelfUpdate(selfUpdateBranchLive());
-  if (!result.ok) {
-    reply.code(500).send(result);
-    return;
-  }
+  /** Always 200: outcome is in `result.ok` / `result.error` (avoids generic client treating merge/build failure as an HTTP exception). */
   reply.code(200).send(result);
 }

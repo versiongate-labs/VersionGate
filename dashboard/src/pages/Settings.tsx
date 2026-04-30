@@ -164,6 +164,10 @@ export function Settings() {
       if (r.ok) {
         toast.success("Update applied — PM2 reload scheduled. Refresh this page in a few seconds.");
         await refreshSelfUpdate();
+      } else {
+        toast.error(r.error ?? "Update failed", {
+          description: r.steps?.length ? r.steps.slice(-3).join(" → ") : undefined,
+        });
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Update failed");

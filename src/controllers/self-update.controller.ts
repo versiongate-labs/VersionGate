@@ -49,10 +49,6 @@ export async function selfUpdateApplyHandler(req: FastifyRequest, reply: Fastify
     return;
   }
   const result = await applySelfUpdate(selfUpdateBranchLive());
-  if (!result.ok) {
-    reply.code(500).send(result);
-    return;
-  }
   reply.code(200).send(result);
 }
 
