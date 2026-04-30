@@ -6,11 +6,45 @@ export type PrismaSchemaSyncMode = "migrate" | "push";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+/** Neon pooled hosts include `-pooler.`; Prisma migrate needs a session-capable host for `pg_advisory_lock`. */
+const NEON_POOLER_MARKER = "-pooler.";
+
+/**
+ * If `DATABASE_URL` points at a Neon pooler host, derive the usual direct hostname by dropping `-pooler.`.
+ * Returns null when not applicable or parse fails. Explicit `DIRECT_DATABASE_URL` always wins (see {@link envForMigrateDeploy}).
+ */
+export function tryInferNeonDirectDatabaseUrl(poolerDatabaseUrl: string): string | null {
+  try {
+    const trimmed = poolerDatabaseUrl.trim();
+    if (!trimmed) return null;
+    const usePostgresqlScheme = /^postgresql:/i.test(trimmed);
+    const normalized = trimmed.replace(/^postgresql:/i, "postgres:");
+    if (!/^postgres:/i.test(normalized)) return null;
+    const u = new URL(normalized);
+    const host = u.hostname;
+    if (!host.toLowerCase().includes("neon.tech")) return null;
+    const p = host.indexOf(NEON_POOLER_MARKER);
+    if (p === -1) return null;
+    u.hostname = `${host.slice(0, p)}.${host.slice(p + NEON_POOLER_MARKER.length)}`;
+    let out = u.toString();
+    if (usePostgresqlScheme) out = out.replace(/^postgres:/i, "postgresql:");
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** Prisma Migrate needs a real DB session for advisory locks — Neon pooler URLs often hit P1002. */
 function envForMigrateDeploy(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const direct = base.DIRECT_DATABASE_URL?.trim();
-  if (!direct) return base;
-  return { ...base, DATABASE_URL: direct };
+  const explicitDirect = base.DIRECT_DATABASE_URL?.trim();
+  if (explicitDirect) {
+    return { ...base, DATABASE_URL: explicitDirect };
+  }
+  const pooler = base.DATABASE_URL?.trim();
+  if (!pooler) return base;
+  const inferred = tryInferNeonDirectDatabaseUrl(pooler);
+  if (!inferred) return base;
+  return { ...base, DATABASE_URL: inferred };
 }
 
 /**
@@ -45,6 +79,10 @@ export function runPrismaSchemaSync(options: {
   const migrateEnv = envForMigrateDeploy(env);
   if (env.DIRECT_DATABASE_URL?.trim()) {
     logger.info("prisma migrate deploy: using DIRECT_DATABASE_URL as DATABASE_URL (avoids pooler advisory-lock timeouts)");
+  } else if (migrateEnv.DATABASE_URL !== env.DATABASE_URL) {
+    logger.info(
+      "prisma migrate deploy: inferred Neon direct URL from pooler DATABASE_URL (dropped `-pooler.` host label). Set DIRECT_DATABASE_URL in .env if your project uses a different direct endpoint."
+    );
   }
 
   try {
@@ -73,7 +111,7 @@ export function runPrismaSchemaSync(options: {
     if (noPushFallback) {
       logger.error(
         { err: msg },
-        "prisma migrate deploy failed (baseline / migration history / DB reachability / advisory lock). Not using db push fallback — fix DATABASE_URL connectivity, set DIRECT_DATABASE_URL (Neon unpooled) for migrate, or baseline the DB (see docs/database-migrations.md)."
+        "prisma migrate deploy failed (baseline / migration history / DB reachability / advisory lock). Not using db push fallback — see docs/database-migrations.md (Neon: set DIRECT_DATABASE_URL or use a `-pooler.` pooler URL for automatic direct-host inference)."
       );
       throw firstErr;
     }

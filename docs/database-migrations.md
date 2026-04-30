@@ -8,7 +8,7 @@ On startup (when `DATABASE_URL` is set), the engine runs schema sync from [`src/
 
 | `PRISMA_SCHEMA_SYNC` | Behavior |
 | -------------------- | -------- |
-| `migrate` (default) | Runs `bunx prisma migrate deploy` (uses **`DIRECT_DATABASE_URL`** as `DATABASE_URL` for that subprocess when set — see Neon below). On some failures it falls back to `db push`. **No fallback** on P3005 / P3009 / P1001 / P1002 / baseline / advisory-lock errors. |
+| `migrate` (default) | Runs `bunx prisma migrate deploy`. Uses **`DIRECT_DATABASE_URL`** as `DATABASE_URL` for that subprocess when set; if unset but **`DATABASE_URL`** is a Neon **`-pooler.`** host, VersionGate **infers** the usual direct host for migrate only (see [`prisma-schema-sync.ts`](../src/utils/prisma-schema-sync.ts)). On some failures it falls back to `db push`. **No fallback** on P3005 / P3009 / P1001 / P1002 / baseline / advisory-lock errors. |
 | `push` | Runs **only** `bunx prisma db push --accept-data-loss` — no migration history required. Use only when you accept push-only discipline for that install. |
 
 Set in `.env`:
@@ -110,6 +110,8 @@ Setting `PRISMA_SCHEMA_SYNC=push` skips `migrate deploy` but does **not** clear 
 ## Neon: pooler timeouts and advisory locks
 
 VersionGate reads optional **`DIRECT_DATABASE_URL`** from `.env`. When present, **`prisma migrate deploy`** (startup and self-update) runs with `DATABASE_URL` temporarily set to that value so Prisma can acquire **PostgreSQL advisory locks** reliably. The running API and Prisma client continue to use the normal pooled **`DATABASE_URL`**.
+
+When **`DIRECT_DATABASE_URL` is not set** but **`DATABASE_URL`** uses a Neon hostname containing **`-pooler.`**, VersionGate **infers** the usual direct host for the migrate subprocess only (same user/password/path/query; only the host label changes). If inference does not match your Neon branch layout, set **`DIRECT_DATABASE_URL`** explicitly from the Neon console.
 
 Add the direct connection string from the Neon console (non-pooler / `-direct` host). You can edit it in **Settings → Update server environment** on the dashboard.
 
