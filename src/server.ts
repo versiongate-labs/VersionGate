@@ -51,13 +51,26 @@ async function start(): Promise<void> {
     // Run reconciliation before accepting requests — cleans up any crashed deploys
     // Skip if database is not configured (setup wizard not completed yet)
     if (databaseUrlLive()) {
-      try {
-        logger.info("Applying database migrations…");
-        runPrismaSchemaSync({ mode: config.prismaSchemaSync });
-      } catch (err) {
-        logger.fatal({ err }, "Database migration failed — check DATABASE_URL and migration files");
-        await disconnectPrisma();
-        process.exit(1);
+      if (config.skipMigrateOnBoot) {
+        logger.error(
+          "SKIP_MIGRATE_ON_BOOT is set — skipped prisma schema sync at startup. Run `bunx prisma migrate deploy` manually, fix any failed migrations (P3009), then remove SKIP_MIGRATE_ON_BOOT and restart (see docs/database-migrations.md)."
+        );
+      } else {
+        try {
+          logger.info("Applying database migrations…");
+          runPrismaSchemaSync({ mode: config.prismaSchemaSync });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.fatal(
+            {
+              err: message,
+              stack: err instanceof Error ? err.stack : undefined,
+            },
+            "Database migration failed — API will not start. Fix DATABASE_URL / migrations, or set SKIP_MIGRATE_ON_BOOT=1 only after you have migrated manually (see docs/database-migrations.md)."
+          );
+          await disconnectPrisma();
+          process.exit(1);
+        }
       }
 
       try {

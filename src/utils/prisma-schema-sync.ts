@@ -6,6 +6,29 @@ export type PrismaSchemaSyncMode = "migrate" | "push";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+type ExecSyncError = Error & { status?: number; stderr?: string; stdout?: string };
+
+function execSyncWithLogs(command: string, opts: { cwd: string; env: NodeJS.ProcessEnv; timeout: number }): void {
+  try {
+    execSync(command, {
+      cwd: opts.cwd,
+      env: opts.env,
+      timeout: opts.timeout,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e: unknown) {
+    const x = e as ExecSyncError;
+    if (typeof x.stderr === "string" && x.stderr.trim()) {
+      logger.error({ stderr: x.stderr.trimEnd().slice(-12_000) }, `${command} stderr`);
+    }
+    if (typeof x.stdout === "string" && x.stdout.trim()) {
+      logger.error({ stdout: x.stdout.trimEnd().slice(-8000) }, `${command} stdout`);
+    }
+    throw e;
+  }
+}
+
 /** Neon pooled hosts include `-pooler.`; Prisma migrate needs a session-capable host for `pg_advisory_lock`. */
 const NEON_POOLER_MARKER = "-pooler.";
 
@@ -67,10 +90,9 @@ export function runPrismaSchemaSync(options: {
 
   if (mode === "push") {
     logger.info("Database schema sync: prisma db push (PRISMA_SCHEMA_SYNC=push)");
-    execSync("bunx prisma db push --accept-data-loss", {
+    execSyncWithLogs("bunx prisma db push --accept-data-loss", {
       cwd,
       env,
-      stdio: "pipe",
       timeout,
     });
     return;
@@ -86,10 +108,9 @@ export function runPrismaSchemaSync(options: {
   }
 
   try {
-    execSync("bunx prisma migrate deploy", {
+    execSyncWithLogs("bunx prisma migrate deploy", {
       cwd,
       env: migrateEnv,
-      stdio: "pipe",
       timeout,
     });
     logger.info("Database migrations applied (prisma migrate deploy)");
@@ -119,10 +140,9 @@ export function runPrismaSchemaSync(options: {
       { err: msg },
       "prisma migrate deploy failed — falling back to prisma db push (legacy or drifted database)"
     );
-    execSync("bunx prisma db push --accept-data-loss", {
+    execSyncWithLogs("bunx prisma db push --accept-data-loss", {
       cwd,
       env,
-      stdio: "pipe",
       timeout,
     });
     logger.warn("Database schema synced via prisma db push fallback");

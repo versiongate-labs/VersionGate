@@ -138,6 +138,16 @@ Operational pattern many teams use:
 
 Document whichever approach you choose in your internal runbook so production and staging stay consistent.
 
+## API crash loop (PM2) right after `Applying database migrations…`
+
+The API process runs **`prisma migrate deploy`** (or `db push` when `PRISMA_SCHEMA_SYNC=push`) **before** it binds to the HTTP port. If that step throws (P3009 failed migration, P1002 advisory lock, wrong URL, etc.), the engine **exits with code 1** and PM2 restarts it — you get a tight restart loop and “the site” never comes up.
+
+1. Read **`versiongate-api` logs** (stdout + stderr). Recent builds also print **`prisma migrate deploy stderr`** with the Prisma error body when migrate fails.
+2. Fix the underlying migrate issue (resolve failed migrations, Neon direct URL, etc.).
+3. **Emergency only:** set **`SKIP_MIGRATE_ON_BOOT=1`** or **`true`** in `.env`, run **`bunx prisma migrate deploy`** successfully by hand from the repo root, then **remove** `SKIP_MIGRATE_ON_BOOT` and restart PM2. While the flag is set, the API does **not** apply migrations on boot — do not leave it on in production.
+
+Also fix obvious **`.env` syntax** mistakes (for example a stray `\` before a key name) so secrets and options load correctly.
+
 ## Reducing noisy fallback warnings
 
 If logs show **`migrate deploy failed — falling back to prisma db push`**:

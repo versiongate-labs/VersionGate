@@ -24,6 +24,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       level: config.logLevel,
     },
     disableRequestLogging: true, // manual logging below — API only
+    /** Default 10s is too tight when cold-starting many plugins (e.g. websocket) on slow disks. */
+    pluginTimeout: 120_000,
   });
 
   // ── API access log: skip noisy dashboard polling (successful GETs only) ─────
