@@ -19,6 +19,8 @@ const projectRepo = new ProjectRepository();
 const envRepo = new EnvironmentRepository();
 
 const INSTALL_APP_URL = "https://github.com/apps/VersionGate-App/installations/new";
+/** Dashboard Integrations page (SPA). */
+const INTEGRATIONS_PATH = "/dashboard/integrations";
 
 function githubAppReady(): boolean {
   const appId = Number(config.githubAppId);
@@ -62,7 +64,7 @@ export async function githubCallbackHandler(
   reply: FastifyReply
 ): Promise<void> {
   if (!githubAppReady()) {
-    reply.redirect(302, "/?github=config");
+    reply.redirect(302, `${INTEGRATIONS_PATH}?github=config`);
     return;
   }
 
@@ -70,7 +72,7 @@ export async function githubCallbackHandler(
   const setupAction = req.query.setup_action ?? "";
 
   if (!installationIdStr || !/^\d+$/.test(installationIdStr)) {
-    reply.redirect(302, "/?github=missing_installation");
+    reply.redirect(302, `${INTEGRATIONS_PATH}?github=missing_installation`);
     return;
   }
 
@@ -82,12 +84,12 @@ export async function githubCallbackHandler(
     userId = user?.id ?? null;
   }
   if (!userId) {
-    reply.redirect(302, "/?github=auth_required");
+    reply.redirect(302, `${INTEGRATIONS_PATH}?github=auth_required`);
     return;
   }
 
   if (setupAction === "request") {
-    reply.redirect(302, "/");
+    reply.redirect(302, INTEGRATIONS_PATH);
     return;
   }
 
@@ -103,7 +105,7 @@ export async function githubCallbackHandler(
 
   const account = installation.account;
   if (!account || typeof account !== "object") {
-    reply.redirect(302, "/?github=bad_installation");
+    reply.redirect(302, `${INTEGRATIONS_PATH}?github=bad_installation`);
     return;
   }
   const login = "login" in account ? account.login : "";
@@ -125,7 +127,149 @@ export async function githubCallbackHandler(
     },
   });
 
-  reply.redirect(302, "/");
+  reply.redirect(302, `${INTEGRATIONS_PATH}?github=connected`);
+}
+
+async function resolveInstallationForUser(
+  userId: string,
+  installationIdQuery?: string
+): Promise<GitHubInstallation | null> {
+  if (installationIdQuery && /^\d+$/.test(installationIdQuery)) {
+    return prisma.gitHubInstallation.findFirst({
+      where: { userId, installationId: BigInt(installationIdQuery) },
+    });
+  }
+  return prisma.gitHubInstallation.findFirst({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+async function avatarForInstallation(row: GitHubInstallation, octokit: Octokit): Promise<string | null> {
+  const login = row.githubAccountLogin;
+  const kind = row.githubAccountType.toLowerCase();
+  try {
+    if (kind === "organization") {
+      const { data } = await octokit.rest.orgs.get({ org: login });
+      return data.avatar_url;
+    }
+    const { data } = await octokit.rest.users.getByUsername({ username: login });
+    return data.avatar_url;
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/github/status — session; connected GitHub App installs + avatar for primary. */
+export async function githubIntegrationStatusHandler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!githubAppReady()) {
+    reply.code(503).send({
+      error: "ServiceUnavailable",
+      message: "GitHub App is not configured. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.",
+    });
+    return;
+  }
+
+  const raw = getSessionTokenFromRequest(req.headers.cookie);
+  const user = await getUserFromSessionToken(raw);
+  if (!user) {
+    reply.code(401).send({ error: "Unauthorized", message: "Sign in required", code: "AUTH_REQUIRED" });
+    return;
+  }
+
+  const rows = await prisma.gitHubInstallation.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (rows.length === 0) {
+    reply.code(200).send({ connected: false, installations: [] });
+    return;
+  }
+
+  const primary = rows[0];
+  const { token } = await getInstallationAccessToken(primary.installationId);
+  const octokit = new Octokit({ auth: token });
+  const avatarUrl = await avatarForInstallation(primary, octokit);
+
+  reply.code(200).send({
+    connected: true,
+    installations: rows.map((r) => ({
+      installationId: r.installationId.toString(),
+      githubAccountLogin: r.githubAccountLogin,
+      githubAccountType: r.githubAccountType,
+      createdAt: r.createdAt.toISOString(),
+    })),
+    installation: {
+      installationId: primary.installationId.toString(),
+      githubAccountLogin: primary.githubAccountLogin,
+      githubAccountType: primary.githubAccountType,
+      avatarUrl,
+      createdAt: primary.createdAt.toISOString(),
+    },
+  });
+}
+
+/** GET /api/github/repos/:owner/:repo/branches — installation token; lists branch names for picker. */
+export async function githubRepoBranchesHandler(
+  req: FastifyRequest<{ Params: { owner: string; repo: string }; Querystring: { installationId?: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  if (!githubAppReady()) {
+    reply.code(503).send({
+      error: "ServiceUnavailable",
+      message: "GitHub App is not configured. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.",
+    });
+    return;
+  }
+
+  const raw = getSessionTokenFromRequest(req.headers.cookie);
+  const user = await getUserFromSessionToken(raw);
+  if (!user) {
+    reply.code(401).send({ error: "Unauthorized", message: "Sign in required", code: "AUTH_REQUIRED" });
+    return;
+  }
+
+  const owner = decodeURIComponent(req.params.owner ?? "").trim();
+  const repo = decodeURIComponent(req.params.repo ?? "").trim();
+  if (!owner || !repo || owner.includes("/") || repo.includes("/")) {
+    reply.code(400).send({ error: "BadRequest", message: "Invalid owner or repo" });
+    return;
+  }
+
+  const q = req.query as { installationId?: string };
+  const row = await resolveInstallationForUser(user.id, q.installationId);
+  if (!row) {
+    reply.code(400).send({
+      error: "BadRequest",
+      message: "No GitHub App installation for this user.",
+    });
+    return;
+  }
+
+  const { token } = await getInstallationAccessToken(row.installationId);
+  const octokit = new Octokit({ auth: token });
+
+  const names: { name: string; sha: string | undefined }[] = [];
+  let page = 1;
+  for (;;) {
+    const { data } = await octokit.rest.repos.listBranches({
+      owner,
+      repo,
+      per_page: 100,
+      page,
+    });
+    for (const b of data) {
+      names.push({ name: b.name, sha: b.commit?.sha });
+    }
+    if (data.length < 100) break;
+    page += 1;
+  }
+
+  reply.code(200).send({
+    installationId: row.installationId.toString(),
+    branches: names,
+  });
 }
 
 export async function githubReposHandler(req: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -145,17 +289,7 @@ export async function githubReposHandler(req: FastifyRequest, reply: FastifyRepl
   }
 
   const q = req.query as { installationId?: string };
-  let row: GitHubInstallation | null;
-  if (q.installationId && /^\d+$/.test(q.installationId)) {
-    row = await prisma.gitHubInstallation.findFirst({
-      where: { userId: user.id, installationId: BigInt(q.installationId) },
-    });
-  } else {
-    row = await prisma.gitHubInstallation.findFirst({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-    });
-  }
+  const row = await resolveInstallationForUser(user.id, q.installationId);
 
   if (!row) {
     reply.code(400).send({
@@ -190,10 +324,14 @@ export async function githubReposHandler(req: FastifyRequest, reply: FastifyRepl
       id: r.id,
       name: r.name,
       fullName: r.full_name,
+      owner: r.owner?.login ?? r.full_name.split("/")[0] ?? "",
       private: r.private,
       defaultBranch: r.default_branch,
       cloneUrl: r.clone_url,
       htmlUrl: r.html_url,
+      language: r.language ?? null,
+      updatedAt: r.updated_at ?? null,
+      pushedAt: r.pushed_at ?? null,
     })),
   });
 }
