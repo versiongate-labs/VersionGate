@@ -12,6 +12,8 @@ function crumbsForPath(pathname: string, projectName: string | null): Crumb[] {
   if (pathname === "/projects") return [{ label: "Overview", to: "/" }, { label: "Projects" }];
   if (pathname === "/system") return [{ label: "Overview", to: "/" }, { label: "System health" }];
   if (pathname === "/settings") return [{ label: "Overview", to: "/" }, { label: "Settings" }];
+  if (pathname === "/dashboard/integrations")
+    return [{ label: "Overview", to: "/" }, { label: "Integrations" }];
 
   const deployM = pathname.match(/^\/projects\/([^/]+)\/deploy\/([^/]+)$/);
   if (deployM) {

@@ -1,5 +1,12 @@
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "/api/v1";
 
+/** Routes mounted at `/api` (GitHub App) — not under `/api/v1`. */
+function githubApiBase(): string {
+  const v = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/$/, "");
+  if (!v) return "/api";
+  return v.replace(/\/api\/v1$/i, "/api");
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly body?: unknown;
@@ -22,8 +29,8 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+async function request<T>(method: string, path: string, body?: unknown, baseUrl: string = API_BASE): Promise<T> {
+  const url = path.startsWith("http") ? path : `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
   const res = await fetch(url, {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
@@ -415,6 +422,78 @@ export function listAllJobs(opts?: { limit?: number; offset?: number }): Promise
   if (opts?.offset != null) q.set("offset", String(opts.offset));
   const qs = q.toString();
   return request("GET", `/jobs${qs ? `?${qs}` : ""}`);
+}
+
+export interface GithubInstallationSummary {
+  installationId: string;
+  githubAccountLogin: string;
+  githubAccountType: string;
+  createdAt: string;
+}
+
+export interface GithubIntegrationStatus {
+  connected: boolean;
+  installations: GithubInstallationSummary[];
+  installation?: {
+    installationId: string;
+    githubAccountLogin: string;
+    githubAccountType: string;
+    avatarUrl: string | null;
+    createdAt: string;
+  };
+}
+
+export interface GithubRepoRow {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  private: boolean;
+  defaultBranch: string | null;
+  cloneUrl: string;
+  htmlUrl: string;
+  language: string | null;
+  updatedAt: string | null;
+  pushedAt: string | null;
+}
+
+export interface GithubReposResponse {
+  installationId: string;
+  totalCount: number;
+  repositories: GithubRepoRow[];
+}
+
+export interface GithubBranchRow {
+  name: string;
+  sha?: string;
+}
+
+export interface GithubBranchesResponse {
+  installationId: string;
+  branches: GithubBranchRow[];
+}
+
+export function getGithubIntegrationStatus(): Promise<GithubIntegrationStatus> {
+  return request("GET", "/github/status", undefined, githubApiBase());
+}
+
+export function getGithubRepos(installationId?: string): Promise<GithubReposResponse> {
+  const q = installationId ? `?installationId=${encodeURIComponent(installationId)}` : "";
+  return request("GET", `/github/repos${q}`, undefined, githubApiBase());
+}
+
+export function getGithubRepoBranches(
+  owner: string,
+  repo: string,
+  installationId?: string
+): Promise<GithubBranchesResponse> {
+  const q = installationId ? `?installationId=${encodeURIComponent(installationId)}` : "";
+  return request(
+    "GET",
+    `/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches${q}`,
+    undefined,
+    githubApiBase()
+  );
 }
 
 export function createWebSocket(jobId: string): WebSocket {

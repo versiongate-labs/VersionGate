@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Activity,
   Bell,
+  Cable,
   CircleHelp,
   FolderKanban,
   HeartPulse,
@@ -54,6 +55,7 @@ const nav = [
   { to: "/", label: "Overview", end: true, icon: LayoutGrid },
   { to: "/projects", label: "Projects", end: true, icon: FolderKanban },
   { to: "/activity", label: "Activity", end: false, icon: Activity },
+  { to: "/dashboard/integrations", label: "Integrations", end: false, icon: Cable },
   { to: "/system", label: "System health", end: false, icon: HeartPulse },
   { to: "/settings", label: "Settings", end: false, icon: Settings },
 ] as const;

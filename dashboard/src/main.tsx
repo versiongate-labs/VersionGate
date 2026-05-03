@@ -8,7 +8,7 @@ import { ProjectDetail } from "@/pages/ProjectDetail";
 import { DeployLog } from "@/pages/DeployLog";
 import { SystemHealth } from "@/pages/SystemHealth";
 import { Projects } from "@/pages/Projects";
-import { Settings } from "@/pages/Settings";
+import { Integrations } from "@/pages/Integrations";
 import { Setup } from "@/pages/Setup";
 import { Activity } from "@/pages/Activity";
 import { Login } from "@/pages/Login";
@@ -27,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/projects/:id/deploy/:jobId" element={<DeployLog />} />
           <Route path="/system" element={<SystemHealth />} />
           <Route path="/server" element={<Navigate to="/system" replace />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/dashboard/integrations" element={<Integrations />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

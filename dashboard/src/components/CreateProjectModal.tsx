@@ -1,7 +1,14 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
-import { createProject } from "@/lib/api";
+import {
+  ApiError,
+  createProject,
+  getGithubIntegrationStatus,
+  getGithubRepoBranches,
+  type GithubInstallationSummary,
+  type GithubRepoRow,
+} from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +20,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { GithubRepoPicker } from "@/components/GithubRepoPicker";
+import { cn } from "@/lib/utils";
 
 const NAME_PATTERN = /^[a-z0-9-]+$/;
 
@@ -22,6 +33,12 @@ const ROOT_PRESETS = [
   { label: "frontend", value: "frontend" },
   { label: "packages/app", value: "packages/app" },
 ] as const;
+
+const selectClass = cn(
+  "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none",
+  "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+  "disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+);
 
 export function CreateProjectModal({
   open,
@@ -41,6 +58,15 @@ export function CreateProjectModal({
   const [appPort, setAppPort] = useState("3000");
   const [healthPath, setHealthPath] = useState("/health");
 
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghConnected, setGhConnected] = useState(false);
+  const [ghInstallations, setGhInstallations] = useState<GithubInstallationSummary[]>([]);
+  const [selectedInstallationId, setSelectedInstallationId] = useState<string | null>(null);
+  const [ghSource, setGhSource] = useState<"github" | "manual">("manual");
+  const [selectedGithubRepo, setSelectedGithubRepo] = useState<GithubRepoRow | null>(null);
+  const [branchNames, setBranchNames] = useState<string[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+
   const reset = () => {
     setName("");
     setRepoUrl("");
@@ -48,6 +74,14 @@ export function CreateProjectModal({
     setBuildContext(".");
     setAppPort("3000");
     setHealthPath("/health");
+    setGhLoading(false);
+    setGhConnected(false);
+    setGhInstallations([]);
+    setSelectedInstallationId(null);
+    setGhSource("manual");
+    setSelectedGithubRepo(null);
+    setBranchNames([]);
+    setBranchesLoading(false);
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -55,11 +89,83 @@ export function CreateProjectModal({
     onOpenChange(next);
   };
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setGhLoading(true);
+    void getGithubIntegrationStatus()
+      .then((s) => {
+        if (cancelled) return;
+        setGhConnected(s.connected);
+        setGhInstallations(s.installations);
+        const id =
+          s.installation?.installationId ?? s.installations[0]?.installationId ?? null;
+        setSelectedInstallationId(id);
+        setGhSource(s.connected ? "github" : "manual");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGhConnected(false);
+          setGhInstallations([]);
+          setGhSource("manual");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setGhLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const handleRepoPick = (r: GithubRepoRow) => {
+    setSelectedGithubRepo(r);
+    setRepoUrl(r.cloneUrl);
+    const defaultB = r.defaultBranch?.trim() || "main";
+    setBranch(defaultB);
+    setBranchNames([]);
+  };
+
+  useEffect(() => {
+    if (!selectedGithubRepo || !selectedInstallationId) return;
+    const slash = selectedGithubRepo.fullName.indexOf("/");
+    const owner = slash >= 0 ? selectedGithubRepo.fullName.slice(0, slash) : "";
+    const repoName = slash >= 0 ? selectedGithubRepo.fullName.slice(slash + 1) : "";
+    if (!owner || !repoName) return;
+
+    setBranchesLoading(true);
+    void getGithubRepoBranches(owner, repoName, selectedInstallationId)
+      .then((res) => {
+        const names = res.branches.map((b) => b.name);
+        setBranchNames(names);
+        const preferred = selectedGithubRepo.defaultBranch?.trim() || "main";
+        if (names.includes(preferred)) {
+          setBranch(preferred);
+        } else if (names[0]) {
+          setBranch(names[0]);
+        }
+      })
+      .catch((e: unknown) => {
+        setBranchNames([]);
+        const msg = e instanceof ApiError ? e.message : "Could not list branches.";
+        toast.error(msg);
+      })
+      .finally(() => setBranchesLoading(false));
+  }, [selectedInstallationId, selectedGithubRepo]);
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim().toLowerCase();
     if (!NAME_PATTERN.test(trimmed)) {
       toast.error("Name must be lowercase letters, numbers, and hyphens only (e.g. my-app).");
+      return;
+    }
+    if (ghSource === "github" && ghConnected && !repoUrl.trim()) {
+      toast.error("Select a GitHub repository or switch to manual URL.");
+      return;
+    }
+    if (ghSource === "manual" && !repoUrl.trim()) {
+      toast.error("Enter a Git repository URL.");
       return;
     }
     const port = Number.parseInt(appPort, 10);
@@ -88,6 +194,35 @@ export function CreateProjectModal({
     }
   };
 
+  const manualRepoFields = (
+    <>
+      <div className="grid gap-1.5">
+        <label htmlFor="cp-repo" className="text-sm font-medium">
+          Git repository URL
+        </label>
+        <Input
+          id="cp-repo"
+          value={repoUrl}
+          onChange={(e) => setRepoUrl(e.target.value)}
+          placeholder="https://github.com/org/repo.git"
+          autoComplete="off"
+          required={ghSource === "manual"}
+        />
+      </div>
+      <div className="grid gap-1.5">
+        <label htmlFor="cp-branch-manual" className="text-sm font-medium">
+          Default branch
+        </label>
+        <Input
+          id="cp-branch-manual"
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          placeholder="main"
+        />
+      </div>
+    </>
+  );
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
@@ -109,6 +244,7 @@ export function CreateProjectModal({
               traffic can switch with no downtime.
             </p>
           </div>
+
           <div className="grid gap-1.5">
             <label htmlFor="cp-name" className="text-sm font-medium">
               Project name (slug)
@@ -123,25 +259,112 @@ export function CreateProjectModal({
             />
             <p className="text-xs text-muted-foreground">Lowercase letters, numbers, hyphens only.</p>
           </div>
-          <div className="grid gap-1.5">
-            <label htmlFor="cp-repo" className="text-sm font-medium">
-              Git repository URL
-            </label>
-            <Input
-              id="cp-repo"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/org/repo.git"
-              autoComplete="off"
-              required
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <label htmlFor="cp-branch" className="text-sm font-medium">
-              Default branch
-            </label>
-            <Input id="cp-branch" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
-          </div>
+
+          {ghLoading ? (
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-6 text-center text-sm text-muted-foreground">
+              Checking GitHub connection…
+            </div>
+          ) : ghConnected ? (
+            <Tabs
+              value={ghSource}
+              onValueChange={(v) => {
+                setGhSource(v as "github" | "manual");
+                if (v === "manual") {
+                  setSelectedGithubRepo(null);
+                  setBranchNames([]);
+                }
+              }}
+            >
+              <TabsList variant="line" className="w-full justify-start">
+                <TabsTrigger value="github">From GitHub</TabsTrigger>
+                <TabsTrigger value="manual">Manual URL</TabsTrigger>
+              </TabsList>
+              <TabsContent value="github" className="mt-4 grid gap-4">
+                {ghInstallations.length > 1 ? (
+                  <div className="grid gap-1.5">
+                    <label htmlFor="cp-gh-install" className="text-sm font-medium">
+                      GitHub installation
+                    </label>
+                    <select
+                      id="cp-gh-install"
+                      className={selectClass}
+                      value={selectedInstallationId ?? ""}
+                      onChange={(e) => {
+                        setSelectedInstallationId(e.target.value || null);
+                        setSelectedGithubRepo(null);
+                        setRepoUrl("");
+                        setBranchNames([]);
+                      }}
+                    >
+                      {ghInstallations.map((i) => (
+                        <option key={i.installationId} value={i.installationId}>
+                          {i.githubAccountLogin} ({i.githubAccountType})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">Organization or account this project&apos;s repos belong to.</p>
+                  </div>
+                ) : null}
+                <div className="grid gap-1.5">
+                  <span className="text-sm font-medium">Repository</span>
+                  <GithubRepoPicker
+                    installationId={selectedInstallationId}
+                    selectedFullName={selectedGithubRepo?.fullName ?? null}
+                    onRepoSelect={handleRepoPick}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label htmlFor="cp-branch-gh" className="text-sm font-medium">
+                    Branch
+                  </label>
+                  {branchesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading branches…</p>
+                  ) : branchNames.length > 0 ? (
+                    <select
+                      id="cp-branch-gh"
+                      className={selectClass}
+                      value={branchNames.includes(branch) ? branch : branchNames[0]}
+                      onChange={(e) => setBranch(e.target.value)}
+                    >
+                      {branchNames.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id="cp-branch-gh"
+                      value={branch}
+                      onChange={(e) => setBranch(e.target.value)}
+                      placeholder={selectedGithubRepo ? "main" : "Select a repository first"}
+                      disabled={!selectedGithubRepo}
+                    />
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Production environment tracks this branch for deploys and webhooks.
+                  </p>
+                </div>
+              </TabsContent>
+              <TabsContent value="manual" className="mt-4 grid gap-4">
+                {manualRepoFields}
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <>
+              <Alert>
+                <AlertTitle>Connect GitHub</AlertTitle>
+                <AlertDescription>
+                  Install the VersionGate GitHub App to browse repositories here. You can still paste a repository URL
+                  below.&nbsp;
+                  <Link to="/dashboard/integrations" className="font-medium text-foreground underline-offset-2 hover:underline">
+                    Open Integrations
+                  </Link>
+                </AlertDescription>
+              </Alert>
+              {manualRepoFields}
+            </>
+          )}
 
           <div className="grid gap-2">
             <label htmlFor="cp-ctx" className="text-sm font-medium">
@@ -189,7 +412,12 @@ export function CreateProjectModal({
               <label htmlFor="cp-health" className="text-sm font-medium">
                 Health check path
               </label>
-              <Input id="cp-health" value={healthPath} onChange={(e) => setHealthPath(e.target.value)} placeholder="/healthz" />
+              <Input
+                id="cp-health"
+                value={healthPath}
+                onChange={(e) => setHealthPath(e.target.value)}
+                placeholder="/healthz"
+              />
             </div>
           </div>
           <DialogFooter className="gap-2 pt-2 sm:justify-end">
