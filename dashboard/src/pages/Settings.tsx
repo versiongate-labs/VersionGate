@@ -554,7 +554,10 @@ export function Settings() {
               <code className="font-mono text-xs">versiongate.dineshkorukonda.online</code>) → add a DNS <strong>A</strong> or <strong>CNAME</strong> for that
               name to this server → <strong>Write nginx config &amp; reload</strong> (so <code className="font-mono text-xs">server_name</code> matches) →
               then <strong>Obtain SSL</strong>. Apex DNS alone does not cover a subdomain—you need a record for the subdomain itself. Running SSL writes the hostname to{" "}
-              <code className="rounded bg-muted px-1 font-mono">.env</code>. Requires <code className="rounded bg-muted px-1 font-mono">certbot</code>, nginx on port 80, and reload privileges (often sudo).
+              <code className="rounded bg-muted px-1 font-mono">.env</code>. The API process must be able to run{" "}
+              <code className="rounded bg-muted px-1 font-mono">certbot</code> (install{" "}
+              <code className="rounded bg-muted px-1 font-mono">certbot</code> and{" "}
+              <code className="rounded bg-muted px-1 font-mono">python3-certbot-nginx</code> on the host; check logs for DNS and certbot path). Requires nginx on port 80 and reload privileges (often sudo).
             </p>
           </form>
         </CardContent>

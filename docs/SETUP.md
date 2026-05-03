@@ -115,7 +115,7 @@ After success, open the dashboard from `/`. The wizard is intended for initial b
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/v1/webhooks/:secret` | GitHub push webhook (auto-deploy) |
-| `GET` | `/api/v1/system/preflight` | Host compatibility (Docker, Git, network, paths; no DB required). Same as `bun run preflight`. |
+| `GET` | `/api/v1/system/preflight` | Host compatibility (Docker, Git, nginx, **certbot / SSL readiness**, `PUBLIC_DOMAIN` DNS, `CERTBOT_EMAIL`, `COOKIE_SECURE`; no DB required). Same as `bun run preflight`. |
 | `GET` | `/api/v1/system/server-stats` | Host CPU / memory / disk / network |
 | `GET` | `/api/v1/system/server-dashboard` | Full server dashboard data |
 | `POST` | `/api/v1/system/reconcile` | Manual crash recovery trigger |

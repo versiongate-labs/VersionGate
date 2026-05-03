@@ -1,7 +1,10 @@
 import { constants, existsSync } from "fs";
 import { access } from "fs/promises";
+import { promises as dns } from "dns";
 import { config } from "../config/env";
 import { execFileAsync } from "../utils/exec";
+import { findCertbotExecutablePath } from "../utils/certbot-path";
+import { isValidHostname, isValidIpv4Address } from "../utils/domain-validation";
 
 export type PreflightSeverity = "required" | "recommended" | "informational";
 
@@ -164,6 +167,134 @@ export async function runPreflightChecks(): Promise<PreflightReport> {
     ok: nginx.ok,
     message: nginx.ok ? firstLine(nginx.out) : "`nginx` not in PATH (install for automatic upstream switching)",
     detail: nginx.ok ? firstLine(nginx.out) : undefined,
+  });
+
+  if (nginx.ok) {
+    const nginxConfExists = existsSync(config.nginxConfigPath);
+    checks.push({
+      id: "nginx_config_path",
+      label: "Nginx config path",
+      severity: "informational",
+      ok: nginxConfExists,
+      message: nginxConfExists
+        ? `File exists: ${config.nginxConfigPath}`
+        : `Not found yet: ${config.nginxConfigPath} — use Settings → Write nginx config after setting PUBLIC_DOMAIN`,
+      detail: config.nginxConfigPath,
+    });
+  }
+
+  // ── Certbot + nginx plugin (Settings → Obtain SSL) ─────────────────────────
+  const certbotBin = findCertbotExecutablePath();
+  const certbotCmd = certbotBin ?? "certbot";
+  const certbotVer = await tryExec(certbotCmd, ["--version"]);
+  checks.push({
+    id: "certbot",
+    label: "Certbot (Let's Encrypt)",
+    severity: "recommended",
+    ok: certbotVer.ok,
+    message: certbotVer.ok
+      ? `${firstLine(certbotVer.out)}${certbotBin ? ` · ${certbotBin}` : ""}`
+      : "Install certbot + python3-certbot-nginx (or snap certbot) for in-dashboard TLS; see docs/SETUP.md",
+    detail: certbotVer.ok ? undefined : certbotVer.err,
+  });
+
+  let certbotNginxPluginOk = false;
+  let certbotPluginsOut = "";
+  if (certbotVer.ok) {
+    const plugins = await tryExec(certbotCmd, ["plugins"]);
+    certbotPluginsOut = plugins.ok ? plugins.out.slice(0, 600) : plugins.err;
+    certbotNginxPluginOk = plugins.ok && /\bnginx\b/i.test(plugins.out);
+  }
+  checks.push({
+    id: "certbot_nginx_plugin",
+    label: "Certbot nginx plugin",
+    severity: "recommended",
+    ok: certbotVer.ok && certbotNginxPluginOk,
+    message:
+      !certbotVer.ok
+        ? "Skipped — install certbot first"
+        : certbotNginxPluginOk
+          ? "`certbot --nginx` installer available"
+          : "Install python3-certbot-nginx (Debian/Ubuntu) so Settings → Obtain SSL can use the nginx authenticator",
+    detail: certbotPluginsOut || undefined,
+  });
+
+  // ── Public URL / TLS alignment (PUBLIC_DOMAIN from env this process loaded) ─
+  const publicDomain = (process.env.PUBLIC_DOMAIN ?? "").trim().toLowerCase();
+  const certbotEmail = (process.env.CERTBOT_EMAIL ?? "").trim();
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(certbotEmail);
+
+  if (publicDomain && isValidHostname(publicDomain)) {
+    try {
+      const a = await dns.resolve4(publicDomain);
+      checks.push({
+        id: "public_domain_dns_a",
+        label: `DNS A for ${publicDomain}`,
+        severity: "recommended",
+        ok: a.length > 0,
+        message:
+          a.length > 0
+            ? `Resolved: ${a.join(", ")} (from this host — Let's Encrypt must reach this server on port 80)`
+            : "No A records returned",
+        detail: publicDomain,
+      });
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      checks.push({
+        id: "public_domain_dns_a",
+        label: `DNS A for ${publicDomain}`,
+        severity: "recommended",
+        ok: false,
+        message:
+          "No A record from this host — subdomain or propagation issue; HTTP-01 validation will fail until DNS points here",
+        detail: err.slice(0, 300),
+      });
+    }
+  } else if (publicDomain && isValidIpv4Address(publicDomain)) {
+    checks.push({
+      id: "public_domain_dns_a",
+      label: "PUBLIC_DOMAIN",
+      severity: "informational",
+      ok: true,
+      message: `Using IPv4 ${publicDomain} — browser access OK; Let's Encrypt needs a DNS hostname instead`,
+      detail: publicDomain,
+    });
+  } else {
+    checks.push({
+      id: "public_domain_dns_a",
+      label: "PUBLIC_DOMAIN (public URL)",
+      severity: "informational",
+      ok: true,
+      message: "Not set — configure Settings → Dashboard URL & hostname when exposing VersionGate on a domain",
+    });
+  }
+
+  const wantsHttpsCookies =
+    Boolean(publicDomain && isValidHostname(publicDomain)) && !isValidIpv4Address(publicDomain);
+  checks.push({
+    id: "certbot_email_env",
+    label: "CERTBOT_EMAIL",
+    severity: "recommended",
+    ok: !wantsHttpsCookies || emailOk,
+    message:
+      wantsHttpsCookies && !emailOk
+        ? "Set CERTBOT_EMAIL in .env (or in Settings) for non-interactive `certbot --nginx` contact"
+        : emailOk
+          ? "Let's Encrypt contact email is set"
+          : "Optional until you use Obtain SSL with a hostname",
+    detail: certbotEmail ? "[set]" : undefined,
+  });
+
+  checks.push({
+    id: "cookie_secure_https",
+    label: "COOKIE_SECURE (HTTPS sessions)",
+    severity: "recommended",
+    ok: !wantsHttpsCookies || config.cookieSecure,
+    message: wantsHttpsCookies && !config.cookieSecure
+      ? "Set COOKIE_SECURE=true when the dashboard is HTTPS-only so session cookies use the Secure flag"
+      : config.cookieSecure
+        ? "COOKIE_SECURE=true — session cookies are Secure (use with HTTPS reverse proxy)"
+        : "COOKIE_SECURE unset/false — fine for HTTP or local access behind plain IP",
   });
 
   const requiredOk = checks.filter((c) => c.severity === "required").every((c) => c.ok);
