@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { readFileSync, existsSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
+import { promises as dns } from "dns";
 import { join } from "path";
 import { FastifyRequest, FastifyReply } from "fastify";
 import {
@@ -17,6 +18,7 @@ import { applySelfUpdate, getSelfUpdateStatus } from "../services/self-update.se
 import { kickSelfUpdatePoll } from "../services/self-update-poll";
 import { isValidHostname, isValidIpv4Address } from "../utils/domain-validation";
 import { generateVersionGateNginxConf, normalizePublicBasePath } from "../utils/nginx-versiongate-site";
+import { CERTBOT_PATH_CANDIDATES, findCertbotExecutablePath } from "../utils/certbot-path";
 
 const DB_URL_REGEX = /^DATABASE_URL\s*=\s*"?([^"\n\r]+)"?\s*$/m;
 
@@ -364,6 +366,84 @@ function reloadNginxBestEffort(): void {
   execFileSync("sudo", ["-n", "/usr/sbin/nginx", "-s", "reload"], { stdio: "pipe" });
 }
 
+async function logDnsForPublicHostname(context: string, hostname: string): Promise<void> {
+  try {
+    const a = await dns.resolve4(hostname);
+    logger.info({ context, hostname, A: a }, `${context}: DNS A for hostname (as seen by this server)`);
+  } catch (err) {
+    logger.warn(
+      { context, hostname, err },
+      `${context}: DNS A lookup failed — add an A (or AAAA) record for this exact hostname, or wait for propagation`
+    );
+  }
+  try {
+    const aaaa = await dns.resolve6(hostname);
+    logger.info({ context, hostname, AAAA: aaaa }, `${context}: DNS AAAA for hostname`);
+  } catch {
+    /* no IPv6 — common */
+  }
+  try {
+    const cname = await dns.resolveCname(hostname);
+    if (cname.length) logger.info({ context, hostname, CNAME: cname }, `${context}: DNS CNAME for hostname`);
+  } catch {
+    /* not a CNAME leaf — normal for A-record setups */
+  }
+}
+
+function isCertbotMissingError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    (m.includes("certbot") && m.includes("command not found")) ||
+    m.includes("enoent") ||
+    (m.includes("no such file or directory") && m.includes("certbot"))
+  );
+}
+
+/** Runs certbot with full binary path when possible (avoids sudo PATH issues). */
+function runCertbotNginxPlugin(args: string[], domain: string): void {
+  const explicit = findCertbotExecutablePath();
+  if (explicit) {
+    logger.info({ certbotPath: explicit, domain }, "certbot: invoking binary");
+    try {
+      execFileSync(explicit, args, { stdio: "pipe", timeout: 240_000 });
+      logger.info({ certbotPath: explicit, domain }, "certbot: finished OK (current user)");
+      return;
+    } catch (directErr) {
+      const msg = directErr instanceof Error ? directErr.message : String(directErr);
+      logger.warn({ err: msg, certbotPath: explicit, domain }, "certbot: failed as current user — trying sudo -n with same path");
+      execFileSync("sudo", ["-n", explicit, ...args], { stdio: "pipe", timeout: 240_000 });
+      logger.info({ certbotPath: explicit, domain, via: "sudo" }, "certbot: finished OK (sudo)");
+      return;
+    }
+  }
+
+  logger.warn(
+    { checkedPaths: [...CERTBOT_PATH_CANDIDATES] },
+    "certbot: no binary at known paths — falling back to PATH name certbot (install certbot on the host)"
+  );
+  try {
+    execFileSync("certbot", args, { stdio: "pipe", timeout: 240_000 });
+    logger.info({ domain }, "certbot: finished OK (PATH certbot)");
+  } catch (pathErr) {
+    const msg1 = pathErr instanceof Error ? pathErr.message : String(pathErr);
+    try {
+      execFileSync("sudo", ["-n", "/usr/bin/certbot", ...args], { stdio: "pipe", timeout: 240_000 });
+      logger.info({ domain, via: "sudo", certbotPath: "/usr/bin/certbot" }, "certbot: finished OK");
+    } catch (sudoErr) {
+      const msg2 = sudoErr instanceof Error ? sudoErr.message : String(sudoErr);
+      if (isCertbotMissingError(msg1) && isCertbotMissingError(msg2)) {
+        throw new Error(
+          "CERTBOT_MISSING: certbot is not installed or not on PATH for this process or sudo. " +
+            "On Debian/Ubuntu run: sudo apt update && sudo apt install -y certbot python3-certbot-nginx. " +
+            "Snap: sudo snap install --classic certbot && sudo ln -sf /snap/bin/certbot /usr/bin/certbot. " +
+            `Checked paths: ${CERTBOT_PATH_CANDIDATES.join(", ")}.`
+        );
+      }
+      throw sudoErr instanceof Error ? sudoErr : pathErr;
+    }
+  }
+}
+
 interface ApplyNginxBody {
   publicDomain?: string;
   publicBasePath?: string;
@@ -397,6 +477,21 @@ export async function postNginxApplySiteHandler(
     return reply.code(400).send({ error: "BadRequest", message: "Invalid public hostname or IP address." });
   }
 
+  logger.info(
+    {
+      domain: domainRaw,
+      basePath,
+      serverName: domainIsIp ? "_" : domainRaw,
+      upstreamPort: config.port,
+      nginxConfigPath: config.nginxConfigPath,
+    },
+    "postNginxApplySite: preparing nginx vhost for VersionGate"
+  );
+
+  if (domainIsHostname) {
+    await logDnsForPublicHostname("postNginxApplySite", domainRaw);
+  }
+
   const conf = generateVersionGateNginxConf({
     serverName: domainIsIp ? "_" : domainRaw,
     defaultServer: domainIsIp,
@@ -408,6 +503,7 @@ export async function postNginxApplySiteHandler(
   const outPath = config.nginxConfigPath;
   try {
     writeFileSync(outPath, conf, "utf-8");
+    logger.info({ outPath, bytes: Buffer.byteLength(conf, "utf-8") }, "postNginxApplySite: wrote nginx config file");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "postNginxApplySite: write failed");
@@ -416,6 +512,7 @@ export async function postNginxApplySiteHandler(
 
   try {
     reloadNginxBestEffort();
+    logger.info({ outPath }, "postNginxApplySite: nginx config tested and reloaded");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "postNginxApplySite: nginx reload failed");
@@ -510,20 +607,35 @@ export async function postCertbotSslHandler(
     "--redirect",
   ];
 
+  logger.info(
+    {
+      domain,
+      certbotResolvedPath: findCertbotExecutablePath(),
+      nginxConfigPath: config.nginxConfigPath,
+    },
+    "postCertbotSsl: starting Let's Encrypt (check DNS logs above if nginx apply was recent)"
+  );
+
+  await logDnsForPublicHostname("postCertbotSsl", domain);
+
   try {
-    try {
-      execFileSync("certbot", args, { stdio: "pipe", timeout: 240_000 });
-    } catch (directErr) {
-      logger.debug({ err: directErr }, "certbot as current user failed — trying sudo -n");
-      execFileSync("sudo", ["-n", "certbot", ...args], { stdio: "pipe", timeout: 240_000 });
-    }
+    runCertbotNginxPlugin(args, domain);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "certbot failed");
+    if (msg.startsWith("CERTBOT_MISSING:")) {
+      const human = msg.replace(/^CERTBOT_MISSING:\s*/, "").trim();
+      logger.error({ domain, detail: human }, "postCertbotSsl: certbot binary not available on host");
+      return reply.code(503).send({
+        error: "CertbotNotInstalled",
+        message: "Certbot is not installed on this server (or sudo cannot run it). Install certbot and the nginx plugin, then retry.",
+        detail: human.slice(0, 1200),
+      });
+    }
+    logger.error({ domain, detail: msg }, "postCertbotSsl: certbot run failed");
     return reply.code(500).send({
       error: "CertbotFailed",
       message:
-        "Certbot could not obtain or install a certificate. Ensure DNS points to this server, ports 80/443 are reachable, certbot is installed, and nginx is healthy.",
+        "Certbot could not obtain or install a certificate. Ensure DNS points to this server, ports 80/443 are reachable, certbot is installed, and nginx is healthy. Check API logs for DNS A/AAAA lines for this hostname.",
       detail: msg.slice(0, 1200),
     });
   }
